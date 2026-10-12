@@ -125,9 +125,29 @@ jobs:
         if: always()
         run: docker compose down --volumes
 
+  infrastructure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install uv==0.12.23
+      - run: uv sync --frozen
+        working-directory: apps/api
+      - run: uvx --from actionlint-py==1.7.12.25 actionlint .github/workflows/ci.yml .github/workflows/deploy.yml
+      - run: uv run --project apps/api ruff check infra/scripts tests/infra
+      - run: uv run --project apps/api ruff format --check infra/scripts tests/infra
+      - run: shellcheck infra/scripts/*.sh tests/infra/test-edge.sh
+      - run: python3 -m unittest discover -s tests/infra -v
+      - run: bash tests/infra/test-edge.sh
+        env:
+          PHOTOLAMP_DEPLOY_SHA: ${{ github.sha }}
+
   quality-gate:
     if: always()
-    needs: [frontend, backend, stack]
+    needs: [frontend, backend, stack, infrastructure]
     runs-on: ubuntu-latest
     steps:
       - name: Require all checks
@@ -135,4 +155,5 @@ jobs:
           FRONTEND: ${{ needs.frontend.result }}
           BACKEND: ${{ needs.backend.result }}
           STACK: ${{ needs.stack.result }}
-        run: test "$FRONTEND" = success && test "$BACKEND" = success && test "$STACK" = success
+          INFRASTRUCTURE: ${{ needs.infrastructure.result }}
+        run: test "$FRONTEND" = success && test "$BACKEND" = success && test "$STACK" = success && test "$INFRASTRUCTURE" = success

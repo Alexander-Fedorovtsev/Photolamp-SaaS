@@ -1,0 +1,31 @@
+# CI-only loopback HTTPS edge, with a temporary trusted localhost certificate.
+services:
+  postgres:
+    volumes: !override
+      - ${STAGING_TEST_DATA_DIR:?Required test data directory}:/var/lib/postgresql/data
+  web:
+    labels:
+      traefik.docker.network: ${STAGING_TEST_EDGE_NETWORK:?Required test network}
+      traefik.http.routers.photolamp-test.tls.certresolver: ""
+  test-edge:
+    image: traefik:v3.6
+    environment:
+      # Bypass only this disposable Docker bridge when the cloud injects an HTTP proxy.
+      NO_PROXY: ${STAGING_TEST_NO_PROXY:?Required local test bypass}
+      no_proxy: ${STAGING_TEST_NO_PROXY:?Required local test bypass}
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.file.filename=/etc/traefik/test/tls.yaml
+      - --entrypoints.websecure.address=:443
+      - --log.level=ERROR
+    ports: ["127.0.0.1:${STAGING_TEST_PORT:-3443}:443"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${STAGING_TEST_CERT_DIR:?Required test certificate directory}:/etc/traefik/test:ro
+    networks: [traefik]
+
+networks:
+  traefik:
+    external: true
+    name: ${STAGING_TEST_EDGE_NETWORK:?Required test network}

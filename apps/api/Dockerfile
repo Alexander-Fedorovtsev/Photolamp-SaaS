@@ -14,6 +14,9 @@ COPY --chown=10001:10001 alembic.ini ./
 COPY --chown=10001:10001 migrations ./migrations
 RUN useradd --uid 10001 --create-home app
 ENV PATH="/app/.venv/bin:$PATH"
+ARG PHOTOLAMP_DEPLOY_SHA=development
+ENV PHOTOLAMP_DEPLOY_SHA=${PHOTOLAMP_DEPLOY_SHA}
+LABEL org.opencontainers.image.revision=${PHOTOLAMP_DEPLOY_SHA}
 USER app
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

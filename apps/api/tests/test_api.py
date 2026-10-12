@@ -109,3 +109,33 @@ def test_unsafe_settings_fail(kwargs: dict[str, object]) -> None:
 
 def test_settings_repr_redacts_credentials() -> None:
     assert "local-development-only" not in repr(Settings())
+
+
+def test_staging_accepts_only_explicit_versioned_demo_configuration() -> None:
+    settings = Settings(
+        app_env="staging",
+        enable_demo_previews=True,
+        database_url="postgresql+asyncpg://photolamp:synthetic-test-password@localhost/photolamp",
+        photolamp_deploy_sha="a" * 40,
+    )
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/api/v1/r/demo-ufa/preview").status_code == 200
+        response = client.get("/api/v1/version")
+        assert response.json() == {"git_sha": "a" * 40}
+        assert response.headers["cache-control"] == "no-store"
+    with pytest.raises(ValidationError, match="exact Git SHA"):
+        Settings(
+            app_env="staging",
+            enable_demo_previews=True,
+            database_url="postgresql+asyncpg://photolamp:synthetic-test-password@localhost/photolamp",
+        )
+
+
+def test_versioned_production_still_rejects_demo_previews() -> None:
+    with pytest.raises(ValidationError, match="Demo previews must be disabled"):
+        Settings(
+            app_env="production",
+            enable_demo_previews=True,
+            database_url="postgresql+asyncpg://photolamp:synthetic-test-password@localhost/photolamp",
+            photolamp_deploy_sha="a" * 40,
+        )

@@ -44,6 +44,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def live() -> dict[str, str]:
         return {"status": "alive"}
 
+    @application.get("/api/v1/version", tags=["health"])
+    async def version() -> JSONResponse:
+        return JSONResponse(
+            {"git_sha": config.photolamp_deploy_sha}, headers={"Cache-Control": "no-store"}
+        )
+
     @application.get(
         "/api/v1/health/ready",
         tags=["health"],

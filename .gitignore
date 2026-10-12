@@ -19,3 +19,4 @@ build/
 !.env.example
 *.tsbuildinfo
 .DS_Store
+.deploy.lock

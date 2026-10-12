@@ -52,4 +52,8 @@ test("web readiness checks the real API", async ({ request }) => {
   const response = await request.get("/api/health/ready");
   expect(response.status()).toBe(200);
   expect(await response.json()).toEqual({ status: "ready" });
+  const version = await request.get("/api/version");
+  expect(version.ok()).toBe(true);
+  const revision = await version.json();
+  expect(revision.git_sha).toBe(revision.api_git_sha);
 });

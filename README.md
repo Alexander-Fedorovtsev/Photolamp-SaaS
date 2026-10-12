@@ -68,6 +68,7 @@ page — следующий этап; текущая версия содержи
 - [Локальный запуск, проверки и облачная сборка](docs/development.md)
 - [Архитектурные решения и контракт tenant isolation/RLS](docs/architecture/adr-0001-foundation.md)
 - [Структура следующего этапа landing page](docs/product/landing-foundation.md)
+- [Демо photolamp-test.anliwei.pro и настройка Continuous Deployment](docs/deployment.md)
 
 ## Первый целевой результат
 
