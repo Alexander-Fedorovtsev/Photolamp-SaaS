@@ -1,0 +1,18 @@
+# Optional cloud-only build trust. The public CA is mounted by BuildKit, never copied.
+services:
+  migrate:
+    build:
+      context: ./apps/api
+      secrets: [proxy_ca]
+  api:
+    build:
+      context: ./apps/api
+      secrets: [proxy_ca]
+  web:
+    build:
+      context: ./apps/web
+      secrets: [proxy_ca]
+
+secrets:
+  proxy_ca:
+    file: ${CODEX_PROXY_CERT:-/etc/ssl/certs/ca-certificates.crt}
