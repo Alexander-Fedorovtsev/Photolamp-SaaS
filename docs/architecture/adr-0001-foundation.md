@@ -79,7 +79,20 @@ Compose запускает postgres → one-shot migrate → api → web; Redis 
 ## Ограничения
 
 Compose предназначен для локальной разработки, порты привязаны к loopback.
-Нет production TLS, runtime DB-role, auth, RLS, backup/restore, rate limits,
+Нет runtime DB-role, tenant auth, RLS, backup/restore, rate limits,
 наблюдаемости, активного worker или полноценного offline PWA. Manifest — только
 shell; service worker отсутствует, приватные ответы никогда не должны кешироваться
 offline. Реальные данные и production запуск требуют отдельных этапов из ТЗ.
+
+## Staging CD (добавление)
+
+`compose.staging.yaml` использует отдельный project `photolamp-test`, private network,
+RAID bind mount и существующий Traefik для HTTPS/Basic Auth. В API добавлен явный
+режим staging: synthetic preview допустим только с отдельным DB password и Git SHA;
+production по-прежнему запрещает demo. Приватные доменные данные не вводятся.
+Web/API SHA запекается в образ; `/api/version` проверяет совпадение двух процессов.
+CD допускает только успешный CI push на точной текущей main-ревизии, использует
+проверенный SSH host key и host-side flock. Образы собираются на сервере; registry
+и отдельный server→GitHub ключ для публичного репозитория не нужны.
+DNS/SSH/Traefik/.env и enabling variable требуют однократной настройки владельцем;
+само добавление workflow не означает, что домен уже опубликован. См. `../deployment.md`.

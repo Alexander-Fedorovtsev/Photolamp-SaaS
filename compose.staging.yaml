@@ -1,0 +1,83 @@
+# For the existing SelfOS host/Traefik. Never publish application or database ports.
+name: photolamp-test
+
+x-staging-environment: &staging-environment
+  APP_ENV: staging
+  ENABLE_DEMO_PREVIEWS: "true"
+  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-photolamp}:${POSTGRES_PASSWORD:?Configure a staging database password}@postgres:5432/${POSTGRES_DB:-photolamp}
+  REDIS_URL: redis://redis:6379/0
+
+x-api-build: &api-build
+  context: ./apps/api
+  args:
+    PHOTOLAMP_DEPLOY_SHA: ${PHOTOLAMP_DEPLOY_SHA:?An exact CI-tested SHA is required}
+
+services:
+  postgres:
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Configure a staging database password}
+    ports: !reset []
+    volumes: !override
+      - /mnt/raid/photolamp-test/postgres:/var/lib/postgresql/data
+    networks: [internal]
+
+  redis:
+    restart: unless-stopped
+    ports: !reset []
+    networks: [internal]
+
+  migrate:
+    image: photolamp-test-api:${PHOTOLAMP_DEPLOY_SHA:?An exact CI-tested SHA is required}
+    build: *api-build
+    environment: *staging-environment
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    networks: [internal]
+
+  api:
+    image: photolamp-test-api:${PHOTOLAMP_DEPLOY_SHA:?An exact CI-tested SHA is required}
+    build: *api-build
+    environment: *staging-environment
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    ports: !reset []
+    networks: [internal]
+
+  web:
+    image: photolamp-test-web:${PHOTOLAMP_DEPLOY_SHA:?An exact CI-tested SHA is required}
+    build:
+      context: ./apps/web
+      args:
+        PHOTOLAMP_DEPLOY_SHA: ${PHOTOLAMP_DEPLOY_SHA:?An exact CI-tested SHA is required}
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    ports: !reset []
+    networks: [internal, traefik]
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: traefik
+      traefik.http.routers.photolamp-test.rule: "Host(`photolamp-test.anliwei.pro`)"
+      traefik.http.routers.photolamp-test.entrypoints: websecure
+      traefik.http.routers.photolamp-test.tls: "true"
+      traefik.http.routers.photolamp-test.tls.certresolver: ${TRAEFIK_CERT_RESOLVER:-myresolver}
+      traefik.http.routers.photolamp-test.middlewares: photolamp-test-auth@docker
+      traefik.http.services.photolamp-test.loadbalancer.server.port: "3000"
+      traefik.http.middlewares.photolamp-test-auth.basicauth.users: ${TRAEFIK_BASIC_AUTH_USERS:?Configure staging Basic Auth}
+      traefik.http.middlewares.photolamp-test-auth.basicauth.removeheader: "true"
+
+networks:
+  default: !reset null
+  internal:
+    internal: true
+  traefik:
+    external: true
+    name: traefik
+
+volumes:
+  postgres-data: !reset null

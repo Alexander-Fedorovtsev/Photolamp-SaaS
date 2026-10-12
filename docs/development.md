@@ -117,7 +117,8 @@ Proxy-настройки Docker управляются облачной сред
 GitHub Actions: frontend lint/format/types/unit/build/audit; backend lint/format/
 mypy/unit/integration/coverage и reversible migration; stack Docker build + real
 smoke + Playwright/axe + остановка Redis и восстановление. `quality-gate`
-успешен только при успехе всех трёх jobs. Для защиты main можно назначить
+успешен только при успехе frontend, backend, stack и infrastructure jobs. Последний
+проверяет CD gate, staging topology и настоящий Traefik/HTTPS/Basic Auth. Для защиты main можно назначить
 `quality-gate` required check в правилах репозитория.
 
 Предусмотрены только foundation endpoints:
@@ -130,6 +131,9 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 | API `/docs`, `/openapi.json` | Реальная спецификация текущего API |
 | Web `/api/health/live` | 200 при живом web |
 | Web `/api/health/ready` | 200 при готовом API; иначе 503 |
+| API `/api/v1/version` | SHA текущего API-образа, no-store |
+| Web `/api/version` | SHA web/API при совпадении, иначе 503; no-store |
 
 План и границы SaaS: `architecture/adr-0001-foundation.md`.
 Подготовка следующего landing PR: `product/landing-foundation.md`.
+Публикация staging и GitHub CD: `deployment.md`.
