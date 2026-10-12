@@ -7,7 +7,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    app_env: Literal["development", "test", "production"] = "development"
+    app_env: Literal["development", "test", "staging", "production"] = "development"
+    photolamp_deploy_sha: str = Field(
+        default="development", pattern=r"^(development|[a-f0-9]{40})$"
+    )
     database_url: SecretStr = Field(
         default=SecretStr(
             "postgresql+asyncpg://photolamp:local-development-only@localhost:5432/photolamp"
@@ -21,9 +24,12 @@ class Settings(BaseSettings):
     def validate_environment(self) -> "Settings":
         if not self.database_url.get_secret_value().startswith("postgresql+asyncpg://"):
             raise ValueError("DATABASE_URL must use PostgreSQL with the asyncpg driver")
+        if self.app_env in {"staging", "production"}:
+            if "local-development-only" in self.database_url.get_secret_value():
+                raise ValueError("Configure deployment database credentials")
+            if self.photolamp_deploy_sha == "development":
+                raise ValueError("Deployments require an exact Git SHA")
         if self.app_env == "production":
             if self.enable_demo_previews:
                 raise ValueError("Demo previews must be disabled in production")
-            if "local-development-only" in self.database_url.get_secret_value():
-                raise ValueError("Configure production database credentials")
         return self

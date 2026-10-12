@@ -1,5 +1,8 @@
 # syntax=docker/dockerfile:1
 FROM python:3.12-slim-bookworm AS base
+ARG PHOTOLAMP_DEPLOY_SHA=development
+ENV PHOTOLAMP_DEPLOY_SHA=${PHOTOLAMP_DEPLOY_SHA}
+LABEL org.opencontainers.image.revision=${PHOTOLAMP_DEPLOY_SHA}
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 UV_LINK_MODE=copy
 WORKDIR /app
 RUN --mount=type=secret,id=proxy_ca \
