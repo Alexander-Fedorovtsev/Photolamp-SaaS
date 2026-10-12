@@ -136,6 +136,7 @@ jobs:
       - run: pip install uv==0.12.23
       - run: uv sync --frozen
         working-directory: apps/api
+      - run: uvx --from actionlint-py==1.7.12.25 actionlint .github/workflows/ci.yml .github/workflows/deploy.yml
       - run: uv run --project apps/api ruff check infra/scripts tests/infra
       - run: uv run --project apps/api ruff format --check infra/scripts tests/infra
       - run: shellcheck infra/scripts/*.sh tests/infra/test-edge.sh
