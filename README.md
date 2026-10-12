@@ -44,6 +44,31 @@ Multi-tenant SaaS-платформа для аренды фотоламп и д�
 - **Queue / jobs:** Redis + worker
 - **Infra:** Docker Compose (MVP), Traefik/Caddy or Nginx, object storage compatible with S3
 
+## Рабочая версия: этап 0
+
+Создана воспроизводимая основа: Next.js 16 + strict TypeScript, FastAPI/Python 3.12,
+SQLAlchemy, PostgreSQL 16, Redis 7, Alembic, Docker Compose, lint/format/typecheck,
+unit/integration/browser tests и GitHub Actions CI.
+
+```bash
+cp .env.example .env
+docker compose up --build --wait --wait-timeout 180
+python3 tests/e2e/smoke.py
+```
+
+Главная: <http://localhost:3000>. Демонстрационные витрины:
+<http://localhost:3000/r/demo-ufa> и <http://localhost:3000/r/demo-kazan>.
+API/OpenAPI: <http://localhost:8000/docs>.
+
+Только вымышленные публичные бренды; оформление заказа, SMS, платежи и телефон
+оператора недоступны. Tenant auth/RLS и бизнес-таблицы ещё не реализованы.
+Приватные клиентские данные не обрабатываются. Полноценный анимированный landing
+page — следующий этап; текущая версия содержит адаптивный shell и SVG-placeholder.
+
+- [Локальный запуск, проверки и облачная сборка](docs/development.md)
+- [Архитектурные решения и контракт tenant isolation/RLS](docs/architecture/adr-0001-foundation.md)
+- [Структура следующего этапа landing page](docs/product/landing-foundation.md)
+
 ## Первый целевой результат
 
 Codex должен уметь, опираясь на документацию в этом репозитории:

@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: 1
+      - run: npm audit --omit=dev --audit-level=high
+
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-bookworm
+        env:
+          POSTGRES_USER: photolamp
+          POSTGRES_PASSWORD: local-development-only
+          POSTGRES_DB: photolamp
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U photolamp -d photolamp"
+          --health-interval 5s --health-timeout 3s --health-retries 12
+      redis:
+        image: redis:7-bookworm
+        ports: [6379:6379]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 12
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install uv==0.12.23
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy app migrations tests
+      - run: uv run alembic upgrade head
+      - run: uv run pytest --cov=app --cov-report=term-missing --cov-fail-under=85
+      - run: uv run alembic downgrade base
+      - run: uv run alembic upgrade head
+
+  stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: docker compose config --quiet
+      - run: docker compose up --build --wait --wait-timeout 180
+      - run: python tests/e2e/smoke.py
+      - run: npm ci
+        working-directory: apps/web
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+      - run: npm run test:e2e
+        working-directory: apps/web
+      - name: Dependency failure and recovery
+        run: |
+          docker compose stop redis
+          python - <<'PY'
+          from urllib.error import HTTPError
+          from urllib.request import urlopen
+          for path in ['http://localhost:8000/api/v1/health/ready', 'http://localhost:3000/api/health/ready']:
+              try:
+                  urlopen(path, timeout=10)
+                  raise AssertionError('Unhealthy dependency must yield 503')
+              except HTTPError as error:
+                  assert error.code == 503
+          assert urlopen('http://localhost:8000/api/v1/health/live').status == 200
+          PY
+          docker compose start redis
+          docker compose up --wait --wait-timeout 60
+          python tests/e2e/smoke.py
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-failure
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 7
+      - name: Container logs
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Cleanup
+        if: always()
+        run: docker compose down --volumes
+
+  quality-gate:
+    if: always()
+    needs: [frontend, backend, stack]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all checks
+        env:
+          FRONTEND: ${{ needs.frontend.result }}
+          BACKEND: ${{ needs.backend.result }}
+          STACK: ${{ needs.stack.result }}
+        run: test "$FRONTEND" = success && test "$BACKEND" = success && test "$STACK" = success

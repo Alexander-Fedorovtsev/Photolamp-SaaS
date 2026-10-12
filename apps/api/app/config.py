@@ -1,0 +1,29 @@
+from typing import Literal
+
+from pydantic import Field, SecretStr, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    app_env: Literal["development", "test", "production"] = "development"
+    database_url: SecretStr = Field(
+        default=SecretStr(
+            "postgresql+asyncpg://photolamp:local-development-only@localhost:5432/photolamp"
+        )
+    )
+    redis_url: SecretStr = SecretStr("redis://localhost:6379/0")
+    enable_demo_previews: bool = False
+    dependency_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
+
+    @model_validator(mode="after")
+    def validate_environment(self) -> "Settings":
+        if not self.database_url.get_secret_value().startswith("postgresql+asyncpg://"):
+            raise ValueError("DATABASE_URL must use PostgreSQL with the asyncpg driver")
+        if self.app_env == "production":
+            if self.enable_demo_previews:
+                raise ValueError("Demo previews must be disabled in production")
+            if "local-development-only" in self.database_url.get_secret_value():
+                raise ValueError("Configure production database credentials")
+        return self

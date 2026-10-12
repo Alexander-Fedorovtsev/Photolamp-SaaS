@@ -1,0 +1,111 @@
+from collections.abc import Iterator
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from fastapi.testclient import TestClient
+from pydantic import ValidationError
+
+from app.config import Settings
+from app.main import create_app
+
+
+@pytest.fixture
+def client() -> Iterator[TestClient]:
+    with TestClient(create_app(Settings(app_env="test", enable_demo_previews=True))) as client:
+        yield client
+
+
+def test_liveness_does_not_require_dependencies(client: TestClient) -> None:
+    assert client.get("/api/v1/health/live").json() == {"status": "alive"}
+
+
+def test_readiness_success(client: TestClient) -> None:
+    with (
+        patch("app.health.check_database", new=AsyncMock()),
+        patch(
+            "redis.asyncio.Redis.ping",
+            new=AsyncMock(return_value=True),
+        ),
+    ):
+        response = client.get("/api/v1/health/ready")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready", "checks": {"database": "ok", "redis": "ok"}}
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize("failed", ["database", "redis", "both"])
+def test_dependency_failures_are_safe(client: TestClient, failed: str) -> None:
+    secret_error = RuntimeError("password=do-not-expose")
+    database = AsyncMock(side_effect=secret_error if failed in {"database", "both"} else None)
+    redis = AsyncMock(
+        return_value=True, side_effect=secret_error if failed in {"redis", "both"} else None
+    )
+    with (
+        patch("app.health.check_database", new=database),
+        patch("redis.asyncio.Redis.ping", new=redis),
+    ):
+        response = client.get("/api/v1/health/ready")
+    assert response.status_code == 503
+    assert response.json()["status"] == "not_ready"
+    assert "password" not in response.text
+
+
+def test_distinct_public_previews(client: TestClient) -> None:
+    ufa = client.get("/api/v1/r/demo-ufa/preview").json()
+    kazan = client.get("/api/v1/r/demo-kazan/preview").json()
+    assert ufa["slug"] != kazan["slug"]
+    assert ufa["city"] == "Уфа"
+    assert kazan["city"] == "Казань"
+    for tenant in [ufa, kazan]:
+        assert tenant["is_demo"] is True
+        assert tenant["booking_enabled"] is False
+        assert tenant["phone"] is None
+        assert tenant["tariff"] is None
+
+
+def test_headers_do_not_change_public_slug(client: TestClient) -> None:
+    response = client.get("/api/v1/r/demo-ufa/preview", headers={"X-Tenant-ID": "demo-kazan"})
+    assert response.json()["slug"] == "demo-ufa"
+
+
+def test_unknown_tenant_does_not_fall_back(client: TestClient) -> None:
+    assert client.get("/api/v1/r/unknown/preview").status_code == 404
+
+
+def test_previews_disabled_by_default() -> None:
+    with TestClient(create_app(Settings(app_env="test", enable_demo_previews=False))) as client:
+        assert client.get("/api/v1/r/demo-ufa/preview").status_code == 404
+
+
+def test_no_booking_or_auth_endpoints(client: TestClient) -> None:
+    for path in [
+        "/api/v1/auth/otp/request",
+        "/api/v1/r/demo-ufa/orders",
+        "/api/v1/webhooks/billing",
+    ]:
+        assert client.post(path, json={}).status_code == 404
+
+
+def test_openapi_matches_preview_contract(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+    preview = schema["components"]["schemas"]["PreviewTenant"]["properties"]
+    assert preview["booking_enabled"]["const"] is False
+    assert preview["is_demo"]["const"] is True
+    assert "/api/v1/health/ready" in schema["paths"]
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"app_env": "production", "enable_demo_previews": True},
+        {"app_env": "production", "enable_demo_previews": False},
+        {"database_url": "sqlite:///:memory:"},
+    ],
+)
+def test_unsafe_settings_fail(kwargs: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        Settings(**kwargs)  # type: ignore[arg-type]
+
+
+def test_settings_repr_redacts_credentials() -> None:
+    assert "local-development-only" not in repr(Settings())
