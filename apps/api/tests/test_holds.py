@@ -46,6 +46,22 @@ async def set_booking(owner: AsyncEngine, enabled: bool) -> None:
 async def clear_holds(owner: AsyncEngine) -> None:
     async with owner.begin() as connection:
         await connection.execute(
+            text("UPDATE orders SET customer_id = NULL WHERE tenant_id = :tenant_id"),
+            {"tenant_id": TENANT_UFA},
+        )
+        await connection.execute(
+            text("UPDATE checkout_sessions SET customer_id = NULL WHERE tenant_id = :tenant_id"),
+            {"tenant_id": TENANT_UFA},
+        )
+        await connection.execute(
+            text("DELETE FROM customer_auth_challenges WHERE tenant_id = :tenant_id"),
+            {"tenant_id": TENANT_UFA},
+        )
+        await connection.execute(
+            text("DELETE FROM customer_sessions WHERE tenant_id = :tenant_id"),
+            {"tenant_id": TENANT_UFA},
+        )
+        await connection.execute(
             text("UPDATE rental_allocations SET order_id = NULL WHERE tenant_id = :tenant_id"),
             {"tenant_id": TENANT_UFA},
         )
@@ -63,6 +79,10 @@ async def clear_holds(owner: AsyncEngine) -> None:
         )
         await connection.execute(
             text("DELETE FROM checkout_sessions WHERE tenant_id = :tenant_id"),
+            {"tenant_id": TENANT_UFA},
+        )
+        await connection.execute(
+            text("DELETE FROM customers WHERE tenant_id = :tenant_id"),
             {"tenant_id": TENANT_UFA},
         )
 

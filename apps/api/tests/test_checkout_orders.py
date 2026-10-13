@@ -44,6 +44,19 @@ async def set_booking(owner: AsyncEngine, enabled: bool) -> None:
 async def clear_checkout(owner: AsyncEngine) -> None:
     async with owner.begin() as connection:
         await connection.execute(
+            text("UPDATE orders SET customer_id = NULL WHERE tenant_id = :tenant_id"),
+            {"tenant_id": TENANT_UFA},
+        )
+        await connection.execute(
+            text("UPDATE checkout_sessions SET customer_id = NULL WHERE tenant_id = :tenant_id"),
+            {"tenant_id": TENANT_UFA},
+        )
+        for table in ("customer_auth_challenges", "customer_sessions"):
+            await connection.execute(
+                text(f"DELETE FROM {table} WHERE tenant_id = :tenant_id"),  # noqa: S608
+                {"tenant_id": TENANT_UFA},
+            )
+        await connection.execute(
             text("UPDATE rental_allocations SET order_id = NULL WHERE tenant_id = :tenant_id"),
             {"tenant_id": TENANT_UFA},
         )
@@ -52,6 +65,10 @@ async def clear_checkout(owner: AsyncEngine) -> None:
                 text(f"DELETE FROM {table} WHERE tenant_id = :tenant_id"),  # noqa: S608
                 {"tenant_id": TENANT_UFA},
             )
+        await connection.execute(
+            text("DELETE FROM customers WHERE tenant_id = :tenant_id"),
+            {"tenant_id": TENANT_UFA},
+        )
 
 
 async def clear_rate_limits(redis_url: str) -> None:
