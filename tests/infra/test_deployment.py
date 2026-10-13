@@ -82,6 +82,39 @@ class DeploymentGate(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Expected one exact Git SHA", result.stderr)
 
+    def test_retry_helper_recovers_and_is_bounded(self):
+        remote = (ROOT / "infra/scripts/remote-deploy.sh").read_text()
+        start = remote.index("retry_command() {")
+        end = remote.index("\n}", start) + 2
+        helper = remote[start:end]
+        recover = subprocess.run(
+            [
+                "bash",
+                "-c",
+                helper + "; count=0; flaky() { ((count += 1)); ((count >= 3)); }; "
+                'retry_command 4 0 "synthetic fetch" flaky; printf "%s" "$count"',
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(recover.returncode, 0, recover.stderr)
+        self.assertEqual(recover.stdout, "3")
+        self.assertIn("attempt 2/4", recover.stderr)
+
+        exhausted = subprocess.run(
+            [
+                "bash",
+                "-c",
+                helper + '; retry_command 2 0 "synthetic fetch" false',
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(exhausted.returncode, 0)
+        self.assertIn("failed after 2 attempts", exhausted.stderr)
+
 
 class StagingTopology(unittest.TestCase):
     @classmethod
