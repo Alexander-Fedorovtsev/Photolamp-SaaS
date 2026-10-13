@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -114,6 +115,61 @@ class DeploymentGate(unittest.TestCase):
         )
         self.assertNotEqual(exhausted.returncode, 0)
         self.assertIn("failed after 2 attempts", exhausted.stderr)
+
+    def test_ci_gate_retries_eventual_actions_visibility_and_is_bounded(self):
+        verifier = ROOT / "infra/scripts/verify-ci-run.sh"
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            fake_bin = fixture / "bin"
+            fake_bin.mkdir()
+            state = fixture / "calls"
+            payload = fixture / "success.json"
+            payload.write_text(json.dumps({"workflow_runs": [self.run]}))
+            (fake_bin / "curl").write_text(
+                "#!/usr/bin/env bash\n"
+                "count=0\n"
+                '[[ ! -f "$FAKE_STATE" ]] || count=$(cat "$FAKE_STATE")\n'
+                "((count += 1))\n"
+                'printf "%s" "$count" > "$FAKE_STATE"\n'
+                'if ((count >= FAKE_SUCCESS_AFTER)); then cat "$FAKE_PAYLOAD"; '
+                "else printf '{\"workflow_runs\":[]}'; fi\n"
+            )
+            (fake_bin / "sleep").write_text("#!/usr/bin/env bash\nexit 0\n")
+            (fake_bin / "curl").chmod(0o755)
+            (fake_bin / "sleep").chmod(0o755)
+            environment = {
+                **os.environ,
+                "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                "GH_TOKEN": "synthetic-test-token",
+                "FAKE_STATE": str(state),
+                "FAKE_PAYLOAD": str(payload),
+                "FAKE_SUCCESS_AFTER": "3",
+            }
+            recovered = subprocess.run(
+                ["bash", str(verifier), SHA, REPOSITORY, str(fixture / "runs.json")],
+                cwd=ROOT,
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(recovered.returncode, 0, recovered.stderr)
+            self.assertEqual(state.read_text(), "3")
+            self.assertIn("retrying (2/6)", recovered.stderr)
+
+            state.unlink()
+            environment["FAKE_SUCCESS_AFTER"] = "99"
+            exhausted = subprocess.run(
+                ["bash", str(verifier), SHA, REPOSITORY, str(fixture / "runs.json")],
+                cwd=ROOT,
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(exhausted.returncode, 0)
+            self.assertEqual(state.read_text(), "6")
+            self.assertIn("after 6 attempts", exhausted.stderr)
 
 
 class StagingTopology(unittest.TestCase):
