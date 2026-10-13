@@ -35,7 +35,7 @@ class DraftOrder(BaseModel):
     fulfillment: Fulfillment
     expires_at: datetime
     quote: Quote
-    identity_verified: Literal[False] = False
+    identity_verified: bool
     payment_status: Literal["not_started"] = "not_started"
     confirmation_available: Literal[False] = False
     replayed: bool
@@ -50,6 +50,7 @@ def _draft_from_row(row: object, *, replayed: bool) -> DraftOrder:
         fulfillment=mapping["fulfillment"],
         expires_at=mapping["expires_at"],
         quote=Quote.model_validate(mapping["quote_snapshot"]),
+        identity_verified=mapping["customer_id"] is not None,
         replayed=replayed,
     )
 
@@ -71,6 +72,16 @@ async def _create_draft_order_in_transaction(
     )
     await expire_holds(transaction)
     checkout_session_id = await require_checkout_session(transaction, checkout_token)
+    customer_id = await transaction.session.scalar(
+        text(
+            "SELECT customer_id FROM checkout_sessions WHERE tenant_id = :tenant_id "
+            "AND id = :checkout_session_id"
+        ),
+        {
+            "tenant_id": transaction.tenant_id,
+            "checkout_session_id": checkout_session_id,
+        },
+    )
     hold_token_hash = capability_digest(hold_token)
     existing = (
         await transaction.session.execute(
@@ -133,10 +144,10 @@ async def _create_draft_order_in_transaction(
                 "INSERT INTO orders "
                 "(id, tenant_id, branch_id, checkout_session_id, allocation_id, source, "
                 "state, start_date, end_date, fulfillment, expires_at, quote_snapshot, "
-                "idempotency_key_hash) VALUES "
+                "idempotency_key_hash, customer_id) VALUES "
                 "(:id, :tenant_id, :branch_id, :checkout_session_id, :allocation_id, "
                 "'website', 'held', :start_date, :end_date, :fulfillment, :expires_at, "
-                "CAST(:quote_snapshot AS jsonb), :idempotency_hash) RETURNING *"
+                "CAST(:quote_snapshot AS jsonb), :idempotency_hash, :customer_id) RETURNING *"
             ),
             {
                 "id": order_id,
@@ -150,6 +161,7 @@ async def _create_draft_order_in_transaction(
                 "expires_at": allocation.expires_at,
                 "quote_snapshot": json.dumps(allocation.quote_snapshot),
                 "idempotency_hash": idempotency_hash,
+                "customer_id": customer_id,
             },
         )
     ).one()

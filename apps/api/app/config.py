@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     checkout_rate_limit_window_seconds: int = Field(default=60, ge=10, le=300)
     checkout_session_rate_limit: int = Field(default=10, ge=1, le=100)
     checkout_mutation_rate_limit: int = Field(default=10, ge=1, le=100)
+    sms_provider_mode: Literal["disabled", "memory"] = "disabled"
+    otp_pepper: SecretStr = SecretStr("local-synthetic-otp-pepper-change-me")
+    otp_ttl_seconds: int = Field(default=300, ge=120, le=600)
+    otp_max_attempts: int = Field(default=5, ge=3, le=10)
+    otp_request_rate_limit: int = Field(default=3, ge=1, le=20)
+    otp_verify_rate_limit: int = Field(default=10, ge=3, le=50)
+    customer_session_ttl_seconds: int = Field(default=86400, ge=900, le=604800)
 
     @model_validator(mode="after")
     def validate_environment(self) -> "Settings":
@@ -42,6 +49,14 @@ class Settings(BaseSettings):
         if self.app_env == "production":
             if self.enable_demo_previews:
                 raise ValueError("Demo previews must be disabled in production")
+        if self.sms_provider_mode == "memory" and self.app_env not in {"development", "test"}:
+            raise ValueError("The memory SMS provider is allowed only in development and tests")
+        if (
+            self.sms_provider_mode != "disabled"
+            and self.app_env in {"staging", "production"}
+            and self.otp_pepper.get_secret_value() == "local-synthetic-otp-pepper-change-me"
+        ):
+            raise ValueError("Configure a non-development OTP pepper")
         return self
 
     def migration_database_url(self) -> str:

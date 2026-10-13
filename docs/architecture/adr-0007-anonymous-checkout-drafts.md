@@ -13,7 +13,7 @@
 
 - `checkout_sessions` хранит tenant-scoped анонимную capability-сессию с TTL.
   Клиент получает непрозрачный токен один раз; PostgreSQL хранит только SHA-256.
-  Сессия явно возвращает `identity_verified=false` и не содержит PII.
+  Новая сессия возвращает `identity_verified=false` и не содержит PII.
 - Hold теперь связан с checkout-сессией и требует `X-Checkout-Token`. Управлять
   hold можно только сочетанием checkout capability и отдельного `X-Hold-Token`.
 - `POST /api/v1/r/{tenant_slug}/checkout/orders` атомарно создаёт из активного
@@ -40,11 +40,10 @@
 согласия и платёжные данные не принимаются. SMS/OTP, переход в `confirmed`,
 уведомления, договор и оплата отсутствуют.
 
-Следующий этап должен добавить подтверждённую клиентскую identity через реального
-провайдера SMS/OTP, явные согласия и state transition `held → confirmed` с
-аудитом. После выбора провайдера нужны отдельные секреты, webhook contract,
-anti-abuse политика и сценарий восстановления; до этого UI checkout остаётся
-заблокированным.
+Local/test клиентская identity с OTP provider boundary реализована в ADR 0008.
+Следующий production-шаг — выбрать реального SMS-провайдера и инфраструктуру для
+персональных данных, добавить явные согласия и state transition
+`held → confirmed` с аудитом. До этого UI checkout остаётся заблокированным.
 
 ## Проверки
 

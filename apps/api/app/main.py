@@ -16,11 +16,23 @@ from app.availability import Availability, Quote, QuoteRequest, calculate_quote,
 from app.catalog import PreviewTenant, PublicCatalog, load_public_catalog, preview_from_catalog
 from app.checkout import CheckoutSession, create_checkout_session
 from app.config import Settings
+from app.customer_auth import (
+    CustomerIdentity,
+    CustomerSession,
+    OtpChallenge,
+    OtpRequest,
+    OtpVerification,
+    customer_session_digest,
+    load_customer_identity,
+    request_customer_otp,
+    verify_customer_otp,
+)
 from app.database import Database, create_engine
 from app.health import Readiness, check_readiness
 from app.holds import ReleasedHold, RentalHold, create_hold, release_hold
 from app.orders import DraftOrder, DraftOrderRequest, create_draft_order, load_draft_order
 from app.rate_limit import enforce_rate_limit
+from app.sms import build_sms_provider
 from app.tenancy import (
     TenantContext,
     TenantSummary,
@@ -47,6 +59,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.engine = engine
         application.state.database = Database(engine)
         application.state.redis = redis
+        application.state.sms_provider = build_sms_provider(config)
         try:
             yield
         finally:
@@ -61,7 +74,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "Tenant/RLS foundation with an auditable catalog and date-aware quote preview. "
             "Synthetic demo staff access is environment-gated. Short-lived inventory holds are "
             "available only for explicitly enabled storefronts. Anonymous draft orders expire "
-            "with their hold; customer identity, SMS, confirmation and payments are unavailable."
+            "with their hold. Customer OTP uses an explicit provider boundary; staging has no "
+            "SMS provider, order confirmation and payments."
         ),
     )
     application.include_router(admin_router)
@@ -196,6 +210,92 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             tenant_slug,
             allow_demo=config.enable_demo_previews,
             ttl_seconds=config.checkout_session_ttl_seconds,
+        )
+
+    @application.post(
+        "/api/v1/r/{tenant_slug}/checkout/identity/otp/request",
+        tags=["customer authentication"],
+        response_model=OtpChallenge,
+        status_code=201,
+    )
+    async def public_customer_otp_request(
+        tenant_slug: str,
+        command: OtpRequest,
+        request: Request,
+        response: Response,
+        db: Annotated[Database, Depends(database)],
+        checkout_token: Annotated[
+            str, Header(alias="X-Checkout-Token", min_length=32, max_length=128)
+        ],
+    ) -> OtpChallenge:
+        response.headers["Cache-Control"] = "no-store"
+        await enforce_rate_limit(
+            request.app.state.redis,
+            f"otp-request:{tenant_slug}:{checkout_token}:{command.phone_e164}",
+            limit=config.otp_request_rate_limit,
+            window_seconds=config.checkout_rate_limit_window_seconds,
+        )
+        return await request_customer_otp(
+            db,
+            request.app.state.sms_provider,
+            tenant_slug,
+            command,
+            checkout_token,
+            allow_demo=config.enable_demo_previews,
+            pepper=config.otp_pepper.get_secret_value(),
+            ttl_seconds=config.otp_ttl_seconds,
+            max_attempts=config.otp_max_attempts,
+        )
+
+    @application.post(
+        "/api/v1/r/{tenant_slug}/checkout/identity/otp/verify",
+        tags=["customer authentication"],
+        response_model=CustomerSession,
+    )
+    async def public_customer_otp_verify(
+        tenant_slug: str,
+        command: OtpVerification,
+        request: Request,
+        response: Response,
+        db: Annotated[Database, Depends(database)],
+        checkout_token: Annotated[
+            str, Header(alias="X-Checkout-Token", min_length=32, max_length=128)
+        ],
+    ) -> CustomerSession:
+        response.headers["Cache-Control"] = "no-store"
+        await enforce_rate_limit(
+            request.app.state.redis,
+            f"otp-verify:{tenant_slug}:{checkout_token}:{command.challenge_id}",
+            limit=config.otp_verify_rate_limit,
+            window_seconds=config.checkout_rate_limit_window_seconds,
+        )
+        return await verify_customer_otp(
+            db,
+            tenant_slug,
+            command,
+            checkout_token,
+            allow_demo=config.enable_demo_previews,
+            pepper=config.otp_pepper.get_secret_value(),
+            customer_session_ttl_seconds=config.customer_session_ttl_seconds,
+        )
+
+    @application.get(
+        "/api/v1/r/{tenant_slug}/me",
+        tags=["customer authentication"],
+        response_model=CustomerIdentity,
+    )
+    async def public_customer_identity(
+        tenant_slug: str,
+        response: Response,
+        digest: Annotated[bytes, Depends(customer_session_digest)],
+        db: Annotated[Database, Depends(database)],
+    ) -> CustomerIdentity:
+        response.headers["Cache-Control"] = "no-store"
+        return await load_customer_identity(
+            db,
+            tenant_slug,
+            digest,
+            allow_demo=config.enable_demo_previews,
         )
 
     @application.post(

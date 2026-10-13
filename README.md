@@ -68,8 +68,9 @@ API/OpenAPI: <http://localhost:8000/docs>.
 вход ещё не реализован. В адаптивной `/admin` можно управлять tenant-scoped
 филиалами, моделями, физическими приборами и тарифами; изменения аудируются и
 отражаются на demo-витрине. API умеет создать анонимную checkout capability,
-атомарный hold и истекающий draft order без персональных данных; demo-витрины
-оставляют booking выключенным и не принимают заказы. Главная содержит полноценный
+атомарный hold, истекающий draft order и local/test OTP identity без plaintext
+телефона; demo-витрины оставляют booking и настоящий SMS выключенными и не
+принимают заказы. Главная содержит полноценный
 адаптивный landing с лёгкой SVG-анимацией.
 
 - [Локальный запуск, проверки и облачная сборка](docs/development.md)
@@ -78,6 +79,7 @@ API/OpenAPI: <http://localhost:8000/docs>.
 - [Tenant-каталог, инвентарь и публичная read-model](docs/architecture/adr-0003-catalog-inventory.md)
 - [Demo staff session, catalog CRUD и аудит](docs/architecture/adr-0004-demo-staff-admin.md)
 - [Анонимный checkout и истекающие draft orders](docs/architecture/adr-0007-anonymous-checkout-drafts.md)
+- [Customer OTP и граница SMS-провайдера](docs/architecture/adr-0008-customer-otp-boundary.md)
 - [Реализованный landing и витрина](docs/product/landing-foundation.md)
 - [Демо photolamp-test.anliwei.pro и настройка Continuous Deployment](docs/deployment.md)
 

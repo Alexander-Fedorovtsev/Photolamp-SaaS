@@ -167,9 +167,17 @@ def test_openapi_matches_catalog_contract(client: TestClient) -> None:
     assert "/api/v1/r/{tenant_slug}/checkout/holds" in schema["paths"]
     assert "/api/v1/r/{tenant_slug}/checkout/orders" in schema["paths"]
     draft = schema["components"]["schemas"]["DraftOrder"]["properties"]
-    assert draft["identity_verified"]["const"] is False
+    assert draft["identity_verified"]["type"] == "boolean"
     assert draft["confirmation_available"]["const"] is False
     assert draft["payment_status"]["const"] == "not_started"
+    assert "/api/v1/r/{tenant_slug}/checkout/identity/otp/request" in schema["paths"]
+    assert "/api/v1/r/{tenant_slug}/checkout/identity/otp/verify" in schema["paths"]
+    assert (
+        schema["components"]["schemas"]["CustomerSession"]["properties"]["identity_verified"][
+            "const"
+        ]
+        is True
+    )
     assert (
         schema["components"]["schemas"]["PublicCatalog"]["properties"]["availability_confirmed"][
             "const"
@@ -225,5 +233,18 @@ def test_versioned_production_still_rejects_demo_previews() -> None:
             app_env="production",
             enable_demo_previews=True,
             database_url="postgresql+asyncpg://photolamp:synthetic-test-password@localhost/photolamp",
+            photolamp_deploy_sha="a" * 40,
+        )
+
+
+def test_memory_sms_provider_is_rejected_outside_local_environments() -> None:
+    with pytest.raises(ValidationError, match="memory SMS provider"):
+        Settings(
+            app_env="staging",
+            enable_demo_previews=True,
+            sms_provider_mode="memory",
+            database_url=(
+                "postgresql+asyncpg://photolamp:synthetic-test-password@localhost/photolamp"
+            ),
             photolamp_deploy_sha="a" * 40,
         )

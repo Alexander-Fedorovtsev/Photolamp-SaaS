@@ -21,6 +21,11 @@ Redis без persistence, поскольку фоновые задачи ещё 
 `docker compose down` останавливает стек; `docker compose down --volumes`
 **удаляет локальную базу** и применяется только для сброса демо-окружения.
 
+Локальный Compose включает `SMS_PROVIDER_MODE=memory` только для разработки.
+Adapter не отправляет SMS и не хранит номер; OTP доступен лишь тестовому процессу.
+Staging жёстко использует `disabled`, поэтому нельзя считать SMS настроенным по
+наличию endpoint в OpenAPI. Не вводите реальные номера в dev/staging.
+
 Пароль в `.env.example` — только local development. Если меняете пароль после
 первого запуска Postgres, volume хранит предыдущие credentials: обновите пароль
 в БД или сбросьте только ненужную локальную базу. В пароле для interpolated
@@ -143,6 +148,9 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 | API `DELETE /api/v1/r/{slug}/checkout/holds/{id}` | Освобождение hold по `X-Checkout-Token` + `X-Hold-Token` |
 | API `POST /api/v1/r/{slug}/checkout/orders` | Истекающий idempotent draft из активного hold; не подтверждает аренду |
 | API `GET /api/v1/r/{slug}/checkout/orders/{id}` | Активный draft только владельцу checkout capability |
+| API `POST /api/v1/r/{slug}/checkout/identity/otp/request` | OTP challenge; работает только с явно настроенным provider, staging возвращает 503 |
+| API `POST /api/v1/r/{slug}/checkout/identity/otp/verify` | Проверка TTL/attempts и выдача opaque customer session |
+| API `GET /api/v1/r/{slug}/me` | Privacy-safe customer identity по bearer session |
 | API `POST /api/v1/t/{tenant_id}/assets/{asset_id}/blocks` | Tenant-scoped сервисная блокировка прибора с аудитом |
 | API `/docs`, `/openapi.json` | Реальная спецификация текущего API |
 | Web `/admin` | Адаптивная demo-панель с HttpOnly session proxy; не production-auth |
@@ -158,5 +166,6 @@ Demo staff admin и аудит: `architecture/adr-0004-demo-staff-admin.md`.
 Availability и серверный quote: `architecture/adr-0005-availability-quote.md`.
 Атомарные rental holds: `architecture/adr-0006-atomic-rental-holds.md`.
 Анонимный checkout и draft orders: `architecture/adr-0007-anonymous-checkout-drafts.md`.
+Customer OTP/provider boundary: `architecture/adr-0008-customer-otp-boundary.md`.
 Реализованный landing: `product/landing-foundation.md`.
 Публикация staging и GitHub CD: `deployment.md`.
