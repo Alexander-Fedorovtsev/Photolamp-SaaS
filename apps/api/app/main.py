@@ -1,6 +1,7 @@
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import date
 from typing import Annotated
 from uuid import UUID
 
@@ -11,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.admin_routes import router as admin_router
 from app.auth import DemoSession, SessionRevoked, issue_demo_session, revoke_session
+from app.availability import Availability, Quote, QuoteRequest, calculate_quote, check_availability
 from app.catalog import PreviewTenant, PublicCatalog, load_public_catalog, preview_from_catalog
 from app.config import Settings
 from app.database import Database, create_engine
@@ -52,8 +54,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
         description=(
-            "Tenant/RLS foundation with an auditable database-backed catalog. "
-            "Synthetic demo staff access is environment-gated; SMS, booking and payments "
+            "Tenant/RLS foundation with an auditable catalog and date-aware quote preview. "
+            "Synthetic demo staff access is environment-gated; holds, booking, SMS and payments "
             "are unavailable."
         ),
     )
@@ -122,6 +124,48 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers["Cache-Control"] = "no-store"
         catalog = await load_public_catalog(db, tenant_slug, allow_demo=config.enable_demo_previews)
         return preview_from_catalog(catalog)
+
+    @application.get(
+        "/api/v1/r/{tenant_slug}/availability",
+        tags=["storefront"],
+        response_model=Availability,
+    )
+    async def public_availability(
+        tenant_slug: str,
+        model_id: UUID,
+        branch_id: UUID,
+        start_date: date,
+        end_date: date,
+        response: Response,
+        db: Annotated[Database, Depends(database)],
+    ) -> Availability:
+        response.headers["Cache-Control"] = "no-store"
+        request = QuoteRequest(
+            model_id=model_id,
+            branch_id=branch_id,
+            start_date=start_date,
+            end_date=end_date,
+            fulfillment="pickup",
+        )
+        return await check_availability(
+            db, tenant_slug, request, allow_demo=config.enable_demo_previews
+        )
+
+    @application.post(
+        "/api/v1/r/{tenant_slug}/checkout/quote",
+        tags=["storefront"],
+        response_model=Quote,
+    )
+    async def public_quote(
+        tenant_slug: str,
+        command: QuoteRequest,
+        response: Response,
+        db: Annotated[Database, Depends(database)],
+    ) -> Quote:
+        response.headers["Cache-Control"] = "no-store"
+        return await calculate_quote(
+            db, tenant_slug, command, allow_demo=config.enable_demo_previews
+        )
 
     @application.post(
         "/api/v1/auth/demo-session",

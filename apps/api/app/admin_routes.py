@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
 
 from app.admin_catalog import (
+    AssetBlockCreate,
     AssetCreate,
     AssetPatch,
     BranchCreate,
@@ -20,9 +21,11 @@ from app.admin_catalog import (
     PricingCreate,
     PricingPatch,
     create_asset,
+    create_asset_block,
     create_branch,
     create_model,
     create_pricing,
+    delete_asset_block,
     load_admin_catalog,
     patch_asset,
     patch_branch,
@@ -45,6 +48,12 @@ class EntityUpdated(BaseModel):
     model_config = ConfigDict(frozen=True)
     id: UUID
     updated: Literal[True] = True
+
+
+class EntityDeleted(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    id: UUID
+    deleted: Literal[True] = True
 
 
 def translate_catalog_error(error: Exception) -> HTTPException:
@@ -116,6 +125,29 @@ async def update_asset(
         await patch_asset(transaction, entity_id, command)
         return EntityUpdated(id=entity_id)
     except (CatalogPermissionDenied, CatalogEntityNotFound, InvalidCatalogCommand) as error:
+        raise translate_catalog_error(error) from None
+
+
+@router.post(
+    "/assets/{asset_id}/blocks",
+    response_model=EntityCreated,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_asset_block(
+    asset_id: UUID, command: AssetBlockCreate, transaction: Transaction
+) -> EntityCreated:
+    try:
+        return EntityCreated(id=await create_asset_block(transaction, asset_id, command))
+    except (CatalogPermissionDenied, CatalogEntityNotFound, InvalidCatalogCommand) as error:
+        raise translate_catalog_error(error) from None
+
+
+@router.delete("/asset-blocks/{entity_id}", response_model=EntityDeleted)
+async def remove_asset_block(entity_id: UUID, transaction: Transaction) -> EntityDeleted:
+    try:
+        await delete_asset_block(transaction, entity_id)
+        return EntityDeleted(id=entity_id)
+    except (CatalogPermissionDenied, CatalogEntityNotFound) as error:
         raise translate_catalog_error(error) from None
 
 
