@@ -391,29 +391,48 @@ async def load_customer_identity(
 ) -> CustomerIdentity:
     try:
         async with database.public_tenant_transaction(slug, allow_demo=allow_demo) as transaction:
-            await transaction.session.execute(
-                text(
-                    "UPDATE customer_sessions SET state = 'expired', updated_at = now() "
-                    "WHERE tenant_id = :tenant_id AND state = 'active' AND expires_at <= now()"
-                ),
-                {"tenant_id": transaction.tenant_id},
-            )
-            identity = (
-                await transaction.session.execute(
-                    text(
-                        "SELECT c.id AS customer_id, c.phone_last4 FROM customer_sessions cs "
-                        "JOIN customers c ON c.tenant_id = cs.tenant_id AND c.id = cs.customer_id "
-                        "WHERE cs.tenant_id = :tenant_id AND cs.token_hash = :token_hash "
-                        "AND cs.state = 'active' AND cs.expires_at > now()"
-                    ),
-                    {"tenant_id": transaction.tenant_id, "token_hash": token_hash},
-                )
-            ).one_or_none()
+            identity = await resolve_customer_identity(transaction, token_hash)
     except PublicStorefrontNotFound:
         raise HTTPException(status_code=404, detail="Storefront not found") from None
     if identity is None:
-        raise HTTPException(status_code=401, detail="Valid customer session required")
+        raise invalid_customer_session()
+    return identity
+
+
+async def resolve_customer_identity(
+    transaction: PublicTenantTransaction, token_hash: bytes
+) -> CustomerIdentity | None:
+    """Resolve a customer inside a tenant transaction and expire stale sessions."""
+    await transaction.session.execute(
+        text(
+            "UPDATE customer_sessions SET state = 'expired', updated_at = now() "
+            "WHERE tenant_id = :tenant_id AND token_hash = :token_hash "
+            "AND state = 'active' AND expires_at <= now()"
+        ),
+        {"tenant_id": transaction.tenant_id, "token_hash": token_hash},
+    )
+    identity = (
+        await transaction.session.execute(
+            text(
+                "SELECT c.id AS customer_id, c.phone_last4 FROM customer_sessions cs "
+                "JOIN customers c ON c.tenant_id = cs.tenant_id AND c.id = cs.customer_id "
+                "WHERE cs.tenant_id = :tenant_id AND cs.token_hash = :token_hash "
+                "AND cs.state = 'active' AND cs.expires_at > now()"
+            ),
+            {"tenant_id": transaction.tenant_id, "token_hash": token_hash},
+        )
+    ).one_or_none()
+    if identity is None:
+        return None
     return CustomerIdentity(
         customer_id=identity.customer_id,
         phone_masked=mask_phone(identity.phone_last4),
+    )
+
+
+def invalid_customer_session() -> HTTPException:
+    return HTTPException(
+        status_code=401,
+        detail="Valid customer session required",
+        headers={"WWW-Authenticate": "Bearer"},
     )

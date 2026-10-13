@@ -5,7 +5,7 @@ from datetime import date
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 from sqlalchemy.exc import IntegrityError
@@ -30,7 +30,16 @@ from app.customer_auth import (
 from app.database import Database, create_engine
 from app.health import Readiness, check_readiness
 from app.holds import ReleasedHold, RentalHold, create_hold, release_hold
-from app.orders import DraftOrder, DraftOrderRequest, create_draft_order, load_draft_order
+from app.orders import (
+    CustomerOrder,
+    CustomerOrderPage,
+    DraftOrder,
+    DraftOrderRequest,
+    create_draft_order,
+    list_customer_orders,
+    load_customer_order,
+    load_draft_order,
+)
 from app.rate_limit import enforce_rate_limit
 from app.sms import build_sms_provider
 from app.tenancy import (
@@ -75,7 +84,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "Synthetic demo staff access is environment-gated. Short-lived inventory holds are "
             "available only for explicitly enabled storefronts. Anonymous draft orders expire "
             "with their hold. Customer OTP uses an explicit provider boundary; staging has no "
-            "SMS provider, order confirmation and payments."
+            "SMS provider, order confirmation and payments. Authenticated customers can read "
+            "only their own privacy-minimized order history."
         ),
     )
     application.include_router(admin_router)
@@ -294,6 +304,64 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return await load_customer_identity(
             db,
             tenant_slug,
+            digest,
+            allow_demo=config.enable_demo_previews,
+        )
+
+    @application.get(
+        "/api/v1/r/{tenant_slug}/me/orders",
+        tags=["customer orders"],
+        response_model=CustomerOrderPage,
+    )
+    async def public_customer_orders(
+        tenant_slug: str,
+        request: Request,
+        response: Response,
+        digest: Annotated[bytes, Depends(customer_session_digest)],
+        db: Annotated[Database, Depends(database)],
+        limit: Annotated[int, Query(ge=1, le=50)] = 20,
+        offset: Annotated[int, Query(ge=0, le=10_000)] = 0,
+    ) -> CustomerOrderPage:
+        response.headers["Cache-Control"] = "no-store"
+        await enforce_rate_limit(
+            request.app.state.redis,
+            f"customer-read:{tenant_slug}:{digest.hex()}",
+            limit=config.checkout_mutation_rate_limit * 3,
+            window_seconds=config.checkout_rate_limit_window_seconds,
+        )
+        return await list_customer_orders(
+            db,
+            tenant_slug,
+            digest,
+            allow_demo=config.enable_demo_previews,
+            limit=limit,
+            offset=offset,
+        )
+
+    @application.get(
+        "/api/v1/r/{tenant_slug}/me/orders/{order_id}",
+        tags=["customer orders"],
+        response_model=CustomerOrder,
+    )
+    async def public_customer_order_detail(
+        tenant_slug: str,
+        order_id: UUID,
+        request: Request,
+        response: Response,
+        digest: Annotated[bytes, Depends(customer_session_digest)],
+        db: Annotated[Database, Depends(database)],
+    ) -> CustomerOrder:
+        response.headers["Cache-Control"] = "no-store"
+        await enforce_rate_limit(
+            request.app.state.redis,
+            f"customer-read:{tenant_slug}:{digest.hex()}",
+            limit=config.checkout_mutation_rate_limit * 3,
+            window_seconds=config.checkout_rate_limit_window_seconds,
+        )
+        return await load_customer_order(
+            db,
+            tenant_slug,
+            order_id,
             digest,
             allow_demo=config.enable_demo_previews,
         )

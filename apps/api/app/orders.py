@@ -2,18 +2,20 @@
 
 import hashlib
 import json
+from collections.abc import Sequence
 from datetime import date, datetime
 from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.availability import Fulfillment, Quote
 from app.capabilities import capability_digest
 from app.checkout import require_checkout_session
+from app.customer_auth import invalid_customer_session, resolve_customer_identity
 from app.database import Database, PublicStorefrontNotFound, PublicTenantTransaction
 from app.holds import expire_holds
 
@@ -41,6 +43,35 @@ class DraftOrder(BaseModel):
     replayed: bool
 
 
+class CustomerOrder(BaseModel):
+    """Privacy-safe order history item for an authenticated customer."""
+
+    model_config = ConfigDict(frozen=True)
+
+    order_id: UUID
+    state: Literal["held", "expired", "cancelled"]
+    source: Literal["website"]
+    start_date: date
+    end_date: date
+    fulfillment: Fulfillment
+    expires_at: datetime
+    quote: Quote
+    identity_verified: Literal[True] = True
+    payment_status: Literal["not_started"] = "not_started"
+    confirmation_available: Literal[False] = False
+    created_at: datetime
+    updated_at: datetime
+
+
+class CustomerOrderPage(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    items: list[CustomerOrder]
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1, le=50)
+    offset: int = Field(ge=0)
+
+
 def _draft_from_row(row: object, *, replayed: bool) -> DraftOrder:
     mapping = row._mapping  # type: ignore[attr-defined]
     return DraftOrder(
@@ -52,6 +83,22 @@ def _draft_from_row(row: object, *, replayed: bool) -> DraftOrder:
         quote=Quote.model_validate(mapping["quote_snapshot"]),
         identity_verified=mapping["customer_id"] is not None,
         replayed=replayed,
+    )
+
+
+def _customer_order_from_row(row: object) -> CustomerOrder:
+    mapping = row._mapping  # type: ignore[attr-defined]
+    return CustomerOrder(
+        order_id=mapping["id"],
+        state=mapping["state"],
+        source=mapping["source"],
+        start_date=mapping["start_date"],
+        end_date=mapping["end_date"],
+        fulfillment=mapping["fulfillment"],
+        expires_at=mapping["expires_at"],
+        quote=Quote.model_validate(mapping["quote_snapshot"]),
+        created_at=mapping["created_at"],
+        updated_at=mapping["updated_at"],
     )
 
 
@@ -249,3 +296,93 @@ async def load_draft_order(
     if order is None:
         raise HTTPException(status_code=404, detail="Active draft order not found")
     return _draft_from_row(order, replayed=False)
+
+
+async def list_customer_orders(
+    database: Database,
+    slug: str,
+    token_hash: bytes,
+    *,
+    allow_demo: bool,
+    limit: int,
+    offset: int,
+) -> CustomerOrderPage:
+    try:
+        async with database.public_tenant_transaction(slug, allow_demo=allow_demo) as transaction:
+            await expire_holds(transaction)
+            identity = await resolve_customer_identity(transaction, token_hash)
+            rows: Sequence[object]
+            if identity is None:
+                total = 0
+                rows = []
+            else:
+                parameters = {
+                    "tenant_id": transaction.tenant_id,
+                    "customer_id": identity.customer_id,
+                    "limit": limit,
+                    "offset": offset,
+                }
+                total = await transaction.session.scalar(
+                    text(
+                        "SELECT count(*) FROM orders WHERE tenant_id = :tenant_id "
+                        "AND customer_id = :customer_id"
+                    ),
+                    parameters,
+                )
+                rows = (
+                    await transaction.session.execute(
+                        text(
+                            "SELECT * FROM orders WHERE tenant_id = :tenant_id "
+                            "AND customer_id = :customer_id "
+                            "ORDER BY created_at DESC, id DESC LIMIT :limit OFFSET :offset"
+                        ),
+                        parameters,
+                    )
+                ).all()
+    except PublicStorefrontNotFound:
+        raise HTTPException(status_code=404, detail="Storefront not found") from None
+    if identity is None:
+        raise invalid_customer_session()
+    return CustomerOrderPage(
+        items=[_customer_order_from_row(row) for row in rows],
+        total=int(total or 0),
+        limit=limit,
+        offset=offset,
+    )
+
+
+async def load_customer_order(
+    database: Database,
+    slug: str,
+    order_id: UUID,
+    token_hash: bytes,
+    *,
+    allow_demo: bool,
+) -> CustomerOrder:
+    try:
+        async with database.public_tenant_transaction(slug, allow_demo=allow_demo) as transaction:
+            await expire_holds(transaction)
+            identity = await resolve_customer_identity(transaction, token_hash)
+            if identity is None:
+                order = None
+            else:
+                order = (
+                    await transaction.session.execute(
+                        text(
+                            "SELECT * FROM orders WHERE tenant_id = :tenant_id "
+                            "AND id = :order_id AND customer_id = :customer_id"
+                        ),
+                        {
+                            "tenant_id": transaction.tenant_id,
+                            "order_id": order_id,
+                            "customer_id": identity.customer_id,
+                        },
+                    )
+                ).one_or_none()
+    except PublicStorefrontNotFound:
+        raise HTTPException(status_code=404, detail="Storefront not found") from None
+    if identity is None:
+        raise invalid_customer_session()
+    if order is None:
+        raise HTTPException(status_code=404, detail="Customer order not found")
+    return _customer_order_from_row(order)

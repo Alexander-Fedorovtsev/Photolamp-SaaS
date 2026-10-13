@@ -2,7 +2,7 @@ import os
 from collections.abc import Sequence
 from datetime import date, timedelta
 from typing import cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -12,6 +12,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.bootstrap_runtime_role import RUNTIME_ROLE
+from app.capabilities import capability_digest
 from app.config import Settings
 from app.main import create_app
 from app.sms import MemorySmsProvider
@@ -180,6 +181,8 @@ async def test_memory_otp_verifies_identity_links_order_and_rotates_session() ->
                 )
                 assert order.status_code == 201
                 assert order.json()["identity_verified"] is False
+                unauthenticated_orders = await client.get("/api/v1/r/demo-ufa/me/orders")
+                assert unauthenticated_orders.status_code == 401
 
                 requested = await client.post(
                     "/api/v1/r/demo-ufa/checkout/identity/otp/request",
@@ -219,6 +222,88 @@ async def test_memory_otp_verifies_identity_links_order_and_rotates_session() ->
                 assert me.status_code == 200
                 assert me.json()["customer_id"] == identity["customer_id"]
 
+                orders = await client.get(
+                    "/api/v1/r/demo-ufa/me/orders?limit=10&offset=0",
+                    headers={"Authorization": f"Bearer {identity['access_token']}"},
+                )
+                assert orders.status_code == 200
+                assert orders.headers["cache-control"] == "no-store"
+                assert orders.json()["total"] == 1
+                assert orders.json()["limit"] == 10
+                assert orders.json()["offset"] == 0
+                customer_order = orders.json()["items"][0]
+                assert customer_order["order_id"] == order.json()["order_id"]
+                assert customer_order["state"] == "held"
+                assert customer_order["identity_verified"] is True
+                assert customer_order["confirmation_available"] is False
+                assert customer_order["payment_status"] == "not_started"
+                for forbidden in (
+                    "phone",
+                    "address",
+                    "asset_id",
+                    "asset_code",
+                    "checkout_session_id",
+                ):
+                    assert forbidden not in orders.text
+
+                customer_detail = await client.get(
+                    f"/api/v1/r/demo-ufa/me/orders/{order.json()['order_id']}",
+                    headers={"Authorization": f"Bearer {identity['access_token']}"},
+                )
+                assert customer_detail.status_code == 200
+                assert customer_detail.json() == customer_order
+                invalid_page = await client.get(
+                    "/api/v1/r/demo-ufa/me/orders?limit=0",
+                    headers={"Authorization": f"Bearer {identity['access_token']}"},
+                )
+                assert invalid_page.status_code == 422
+
+                other_token = "pc_" + "B" * 43
+                async with owner.begin() as connection:
+                    other_customer_id = uuid4()
+                    await connection.execute(
+                        text(
+                            "INSERT INTO customers "
+                            "(id, tenant_id, phone_lookup_hash, phone_last4) VALUES "
+                            "(:id, :tenant_id, :phone_hash, '0002')"
+                        ),
+                        {
+                            "id": other_customer_id,
+                            "tenant_id": TENANT_UFA,
+                            "phone_hash": b"b" * 32,
+                        },
+                    )
+                    await connection.execute(
+                        text(
+                            "INSERT INTO customer_sessions "
+                            "(id, tenant_id, customer_id, token_hash, expires_at) VALUES "
+                            "(:id, :tenant_id, :customer_id, :token_hash, "
+                            "now() + interval '1 hour')"
+                        ),
+                        {
+                            "id": uuid4(),
+                            "tenant_id": TENANT_UFA,
+                            "customer_id": other_customer_id,
+                            "token_hash": capability_digest(other_token),
+                        },
+                    )
+                other_orders = await client.get(
+                    "/api/v1/r/demo-ufa/me/orders",
+                    headers={"Authorization": f"Bearer {other_token}"},
+                )
+                assert other_orders.status_code == 200
+                assert other_orders.json()["total"] == 0
+                private_order = await client.get(
+                    f"/api/v1/r/demo-ufa/me/orders/{order.json()['order_id']}",
+                    headers={"Authorization": f"Bearer {other_token}"},
+                )
+                assert private_order.status_code == 404
+                wrong_tenant = await client.get(
+                    "/api/v1/r/demo-kazan/me/orders",
+                    headers={"Authorization": f"Bearer {identity['access_token']}"},
+                )
+                assert wrong_tenant.status_code == 401
+
                 linked = await client.get(
                     f"/api/v1/r/demo-ufa/checkout/orders/{order.json()['order_id']}",
                     headers={"X-Checkout-Token": checkout_token},
@@ -240,11 +325,30 @@ async def test_memory_otp_verifies_identity_links_order_and_rotates_session() ->
                     headers={"Authorization": f"Bearer {identity['access_token']}"},
                 )
                 assert old_session.status_code == 401
+                old_session_orders = await client.get(
+                    "/api/v1/r/demo-ufa/me/orders",
+                    headers={"Authorization": f"Bearer {identity['access_token']}"},
+                )
+                assert old_session_orders.status_code == 401
                 new_session = await client.get(
                     "/api/v1/r/demo-ufa/me",
                     headers={"Authorization": f"Bearer {replay.json()['access_token']}"},
                 )
                 assert new_session.status_code == 200
+                async with owner.begin() as connection:
+                    await connection.execute(
+                        text(
+                            "UPDATE rental_allocations SET expires_at = "
+                            "now() - interval '1 second' WHERE order_id = :order_id"
+                        ),
+                        {"order_id": UUID(order.json()["order_id"])},
+                    )
+                expired_order = await client.get(
+                    f"/api/v1/r/demo-ufa/me/orders/{order.json()['order_id']}",
+                    headers={"Authorization": f"Bearer {replay.json()['access_token']}"},
+                )
+                assert expired_order.status_code == 200
+                assert expired_order.json()["state"] == "expired"
                 async with owner.begin() as connection:
                     await connection.execute(
                         text(
@@ -272,6 +376,23 @@ async def test_memory_otp_verifies_identity_links_order_and_rotates_session() ->
                     headers={"Authorization": f"Bearer {replay.json()['access_token']}"},
                 )
                 assert expired_session.status_code == 401
+                expired_session_orders = await client.get(
+                    "/api/v1/r/demo-ufa/me/orders",
+                    headers={"Authorization": f"Bearer {replay.json()['access_token']}"},
+                )
+                assert expired_session_orders.status_code == 401
+                async with owner.begin() as connection:
+                    expired_state = await connection.scalar(
+                        text(
+                            "SELECT state FROM customer_sessions "
+                            "WHERE tenant_id = :tenant_id AND token_hash = :token_hash"
+                        ),
+                        {
+                            "tenant_id": TENANT_UFA,
+                            "token_hash": capability_digest(replay.json()["access_token"]),
+                        },
+                    )
+                    assert expired_state == "expired"
 
         async with owner.begin() as connection:
             columns = {
@@ -290,7 +411,8 @@ async def test_memory_otp_verifies_identity_links_order_and_rotates_session() ->
                 await connection.execute(
                     text(
                         "SELECT octet_length(phone_lookup_hash), phone_last4 "
-                        "FROM customers WHERE tenant_id = :tenant_id"
+                        "FROM customers WHERE tenant_id = :tenant_id "
+                        "AND phone_last4 = '0001'"
                     ),
                     {"tenant_id": TENANT_UFA},
                 )

@@ -151,6 +151,8 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 | API `POST /api/v1/r/{slug}/checkout/identity/otp/request` | OTP challenge; работает только с явно настроенным provider, staging возвращает 503 |
 | API `POST /api/v1/r/{slug}/checkout/identity/otp/verify` | Проверка TTL/attempts и выдача opaque customer session |
 | API `GET /api/v1/r/{slug}/me` | Privacy-safe customer identity по bearer session |
+| API `GET /api/v1/r/{slug}/me/orders` | Ограниченная пагинацией история только владельца customer session |
+| API `GET /api/v1/r/{slug}/me/orders/{id}` | Privacy-safe карточка собственного заказа во всех текущих состояниях |
 | API `POST /api/v1/t/{tenant_id}/assets/{asset_id}/blocks` | Tenant-scoped сервисная блокировка прибора с аудитом |
 | API `/docs`, `/openapi.json` | Реальная спецификация текущего API |
 | Web `/admin` | Адаптивная demo-панель с HttpOnly session proxy; не production-auth |
@@ -167,5 +169,6 @@ Availability и серверный quote: `architecture/adr-0005-availability-qu
 Атомарные rental holds: `architecture/adr-0006-atomic-rental-holds.md`.
 Анонимный checkout и draft orders: `architecture/adr-0007-anonymous-checkout-drafts.md`.
 Customer OTP/provider boundary: `architecture/adr-0008-customer-otp-boundary.md`.
+Customer order read model: `architecture/adr-0009-customer-order-read-model.md`.
 Реализованный landing: `product/landing-foundation.md`.
 Публикация staging и GitHub CD: `deployment.md`.
