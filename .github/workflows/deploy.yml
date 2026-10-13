@@ -69,12 +69,12 @@ jobs:
       - name: Deploy CI-approved source over SSH
         run: |
           set -Eeuo pipefail
-          ssh -i "$RUNNER_TEMP/photolamp-staging-key" -p "$STAGING_SSH_PORT" \
-            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
-            -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=4 \
-            -o UserKnownHostsFile="$RUNNER_TEMP/photolamp-known-hosts" \
-            "$STAGING_USER@$STAGING_HOST" bash -s -- "$DEPLOY_SHA" \
-            < infra/scripts/remote-deploy.sh
+          bash infra/scripts/run-remote-deploy.sh \
+            "$DEPLOY_SHA" \
+            "$RUNNER_TEMP/photolamp-staging-key" \
+            "$RUNNER_TEMP/photolamp-known-hosts" \
+            "$STAGING_HOST" "$STAGING_USER" "$STAGING_SSH_PORT" \
+            infra/scripts/remote-deploy.sh
       - name: Remove SSH material
         if: always()
         run: rm -f -- "$RUNNER_TEMP/photolamp-staging-key" "$RUNNER_TEMP/photolamp-known-hosts" "$RUNNER_TEMP/photolamp-ci-runs.json"

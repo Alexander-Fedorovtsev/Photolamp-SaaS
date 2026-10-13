@@ -171,6 +171,86 @@ class DeploymentGate(unittest.TestCase):
             self.assertEqual(state.read_text(), "6")
             self.assertIn("after 6 attempts", exhausted.stderr)
 
+    def test_ssh_deploy_retries_only_transport_failures(self):
+        runner = ROOT / "infra/scripts/run-remote-deploy.sh"
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            fake_bin = fixture / "bin"
+            fake_bin.mkdir()
+            for name in ("key", "known-hosts", "remote.sh"):
+                (fixture / name).write_text("synthetic\n")
+            state = fixture / "calls"
+            (fake_bin / "ssh").write_text(
+                "#!/usr/bin/env bash\n"
+                "cat >/dev/null\n"
+                "count=0\n"
+                '[[ ! -f "$FAKE_STATE" ]] || count=$(cat "$FAKE_STATE")\n'
+                "((count += 1))\n"
+                'printf "%s" "$count" > "$FAKE_STATE"\n'
+                'if ((count >= FAKE_SUCCESS_AFTER)); then exit "$FAKE_FINAL_STATUS"; fi\n'
+                "exit 255\n"
+            )
+            (fake_bin / "sleep").write_text("#!/usr/bin/env bash\nexit 0\n")
+            (fake_bin / "ssh").chmod(0o755)
+            (fake_bin / "sleep").chmod(0o755)
+            command = [
+                "bash",
+                str(runner),
+                SHA,
+                str(fixture / "key"),
+                str(fixture / "known-hosts"),
+                "staging.example.test",
+                "photolamp-deploy",
+                "38222",
+                str(fixture / "remote.sh"),
+            ]
+            environment = {
+                **os.environ,
+                "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                "FAKE_STATE": str(state),
+                "FAKE_SUCCESS_AFTER": "3",
+                "FAKE_FINAL_STATUS": "0",
+            }
+            recovered = subprocess.run(
+                command,
+                cwd=ROOT,
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(recovered.returncode, 0, recovered.stderr)
+            self.assertEqual(state.read_text(), "3")
+            self.assertIn("retrying (2/4)", recovered.stderr)
+
+            state.unlink()
+            environment["FAKE_SUCCESS_AFTER"] = "99"
+            exhausted = subprocess.run(
+                command,
+                cwd=ROOT,
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(exhausted.returncode, 255)
+            self.assertEqual(state.read_text(), "4")
+            self.assertIn("failed after 4 attempts", exhausted.stderr)
+
+            state.unlink()
+            environment["FAKE_SUCCESS_AFTER"] = "1"
+            environment["FAKE_FINAL_STATUS"] = "23"
+            remote_failure = subprocess.run(
+                command,
+                cwd=ROOT,
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(remote_failure.returncode, 23)
+            self.assertEqual(state.read_text(), "1")
+
 
 class StagingTopology(unittest.TestCase):
     @classmethod
