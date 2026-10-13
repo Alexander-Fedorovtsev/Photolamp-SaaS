@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import { AdminOrders } from "@/components/admin-orders";
 import {
   adminCatalogSchema,
   membershipSchema,
@@ -36,6 +37,13 @@ export function AdminWorkspace() {
   const [catalog, setCatalog] = useState<AdminCatalog | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+
+  const clearSession = useCallback(() => {
+    setCatalog(null);
+    setMemberships([]);
+    setTenantId("");
+    setSession("anonymous");
+  }, []);
 
   const loadSession = useCallback(async () => {
     try {
@@ -156,8 +164,8 @@ export function AdminWorkspace() {
           <p className="eyebrow">Панель арендодателя</p>
           <h1>Управляйте каталогом без работы с базой.</h1>
           <p className="lead">
-            В этой версии доступен изолированный demo-кабинет: филиалы, модели, экземпляры и тарифы.
-            Все данные синтетические.
+            В этой версии доступен изолированный demo-кабинет: очередь заказов, филиалы, модели,
+            экземпляры и тарифы. Все данные синтетические.
           </p>
           <button
             className="button primary"
@@ -221,7 +229,7 @@ export function AdminWorkspace() {
             <p className="eyebrow">Рабочее пространство · demo</p>
             <h1>{currentTenant?.display_name ?? "Каталог"}</h1>
             <p>
-              Роль: {currentTenant?.role}. Изменения сразу отражаются на публичной demo-витрине.
+              Роль: {currentTenant?.role}. Заказы и каталог изолированы в выбранной организации.
             </p>
           </div>
           <Link href={`/r/${currentTenant?.slug ?? "demo-ufa"}`} className="button secondary">
@@ -258,6 +266,12 @@ export function AdminWorkspace() {
                 <span>филиалы</span>
               </article>
             </section>
+
+            <AdminOrders
+              tenantId={tenantId}
+              timeZone={currentTenant?.timezone ?? "UTC"}
+              onUnauthorized={clearSession}
+            />
 
             <ModelSection catalog={catalog} busy={busy} mutate={mutate} />
             <AssetSection catalog={catalog} busy={busy} mutate={mutate} />

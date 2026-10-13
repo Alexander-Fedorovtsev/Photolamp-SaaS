@@ -1,4 +1,11 @@
 import { z } from "zod";
+import { quoteSchema } from "./quote";
+
+const uuidSchema = z
+  .string()
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const isoDateTimeSchema = z.string().datetime({ offset: true });
 
 export const membershipSchema = z.object({
   tenant_id: z.string(),
@@ -72,5 +79,56 @@ export const adminCatalogSchema = z.object({
   asset_blocks: z.array(assetBlockSchema).default([]),
 });
 
+export const adminOrderStateSchema = z.enum(["held", "confirmed", "expired", "cancelled"]);
+
+const adminOrderSnapshotSchema = z
+  .object({
+    schema_version: z.literal(1),
+    model_id: uuidSchema,
+    model_name: z.string().min(1),
+    branch_id: uuidSchema,
+    branch_name: z.string().min(1),
+    start_date: isoDateSchema,
+    end_date: isoDateSchema,
+    fulfillment: z.enum(["pickup", "delivery"]),
+    quote: quoteSchema,
+  })
+  .strict();
+
+export const adminOrderSchema = z
+  .object({
+    order_id: uuidSchema,
+    state: adminOrderStateSchema,
+    source: z.literal("website"),
+    snapshot: adminOrderSnapshotSchema,
+    identity_verified: z.boolean(),
+    payment_status: z.literal("not_started"),
+    expires_at: isoDateTimeSchema,
+    confirmed_at: isoDateTimeSchema.nullable(),
+    confirmed_by_staff_user_id: uuidSchema.nullable(),
+    created_at: isoDateTimeSchema,
+    updated_at: isoDateTimeSchema,
+  })
+  .strict();
+
+export const adminOrderPageSchema = z
+  .object({
+    items: z.array(adminOrderSchema),
+    total: z.number().int().nonnegative(),
+    limit: z.number().int().min(1).max(100),
+    offset: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const adminOrderTransitionSchema = z
+  .object({
+    order: adminOrderSchema,
+    replayed: z.boolean(),
+  })
+  .strict();
+
 export type Membership = z.infer<typeof membershipSchema>;
 export type AdminCatalog = z.infer<typeof adminCatalogSchema>;
+export type AdminOrder = z.infer<typeof adminOrderSchema>;
+export type AdminOrderPage = z.infer<typeof adminOrderPageSchema>;
+export type AdminOrderState = z.infer<typeof adminOrderStateSchema>;

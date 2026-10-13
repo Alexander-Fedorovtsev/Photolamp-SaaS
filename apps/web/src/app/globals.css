@@ -233,6 +233,7 @@ h3 {
 }
 .admin-tenant-picker select,
 .admin-list select,
+.admin-order-toolbar select,
 .admin-create input,
 .admin-create textarea,
 .admin-create select {
@@ -342,14 +343,138 @@ h3 {
   font-weight: 700;
 }
 .status-published,
-.status-active {
+.status-active,
+.status-confirmed {
   color: #285648;
   background: #dcefe5;
 }
 .status-archived,
-.status-inactive {
+.status-inactive,
+.status-expired,
+.status-cancelled {
   color: #695c58;
   background: #eee8e4;
+}
+.status-held {
+  color: #725317;
+  background: #fff0c8;
+}
+.admin-order-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.admin-order-toolbar label {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+.admin-order-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 22px;
+}
+.admin-order-card {
+  overflow: clip;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+}
+.admin-order-card summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 92px;
+  padding: 20px 22px;
+  cursor: pointer;
+  list-style: none;
+}
+.admin-order-card summary::-webkit-details-marker {
+  display: none;
+}
+.admin-order-card summary::after {
+  content: "+";
+  color: var(--muted);
+  font-size: 26px;
+  line-height: 1;
+}
+.admin-order-card[open] summary::after {
+  content: "−";
+}
+.admin-order-summary-main,
+.admin-order-summary-side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.admin-order-summary-main {
+  flex: 1;
+}
+.admin-order-summary-main > span:not(.status),
+.admin-order-summary-side span {
+  color: var(--muted);
+  font-size: 14px;
+}
+.admin-order-summary-side {
+  align-items: flex-end;
+  text-align: right;
+}
+.admin-order-detail {
+  padding: 4px 22px 24px;
+  border-top: 1px solid var(--line);
+}
+.admin-order-detail dl {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin: 20px 0;
+}
+.admin-order-detail dl div {
+  padding: 14px;
+  background: #f7f6f1;
+  border-radius: 14px;
+}
+.admin-order-detail dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.admin-order-detail dd {
+  margin: 5px 0 0;
+  font-weight: 700;
+}
+.admin-order-id {
+  display: block;
+  max-width: 100%;
+  margin-top: 14px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.admin-order-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+.admin-empty-state {
+  margin-top: 22px;
+  padding: 28px;
+  background: #fff;
+  border: 1px dashed #b9c3bb;
+  border-radius: 20px;
+}
+.admin-empty-state h3,
+.admin-empty-state p {
+  margin: 0;
+}
+.admin-empty-state p,
+.admin-inline-loading {
+  margin-top: 8px;
+  color: var(--muted);
 }
 .text-button {
   min-height: 44px;
@@ -458,6 +583,11 @@ h3 {
   .admin-section-heading {
     flex-direction: column;
   }
+  .admin-order-toolbar {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+  }
   .admin-metrics {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -467,6 +597,21 @@ h3 {
   .admin-list article {
     align-items: stretch;
     flex-direction: column;
+  }
+  .admin-order-card summary {
+    align-items: flex-start;
+    gap: 12px;
+    padding: 18px;
+  }
+  .admin-order-summary-side {
+    align-items: flex-start;
+    text-align: left;
+  }
+  .admin-order-detail {
+    padding-inline: 18px;
+  }
+  .admin-order-detail dl {
+    grid-template-columns: 1fr 1fr;
   }
   .admin-create,
   .admin-create summary {
