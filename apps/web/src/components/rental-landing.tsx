@@ -4,7 +4,8 @@ import { LampScene } from "./lamp-scene";
 import { ArrowIcon } from "./arrow-icon";
 import { RentalPlanner } from "./rental-planner";
 import { MotionControls } from "./motion-controls";
-import type { TenantPreview } from "@/lib/tenant";
+import { CatalogSection } from "./catalog-section";
+import type { TenantCatalog } from "@/lib/tenant";
 
 const steps = [
   [
@@ -69,18 +70,32 @@ export function RentalLanding({
   name,
   city,
   accent,
+  catalog,
   showDemoLinks = false,
 }: {
   name: string;
   city: string;
-  accent: TenantPreview["accent"];
+  accent: TenantCatalog["accent"];
+  catalog?: TenantCatalog;
   showDemoLinks?: boolean;
 }) {
+  const faq = catalog
+    ? questions.map(([question, answer]) =>
+        question === "Сколько стоит аренда?"
+          ? [
+              question,
+              "На карточках показаны синтетические демо-тарифы из базы данных. Они нужны для проверки каталога и интерфейса, не являются офертой и не подтверждают итоговую стоимость или наличие на выбранные даты.",
+            ]
+          : [question, answer],
+      )
+    : questions;
   return (
     <div data-accent={accent} className="landing">
       <BrandHeader name={name} city={city} landing />
       <div className="demo-notice" role="note">
-        Демонстрационная витрина. Аренда пока недоступна; тарифы и контакты не настроены.
+        {catalog
+          ? "Демонстрационная витрина. Каталог и цены синтетические; аренда, контакты и проверка доступности пока отключены."
+          : "Демонстрационная витрина. Аренда пока недоступна; тарифы и контакты не настроены."}
       </div>
       <MotionControls>
         <main id="main-content">
@@ -118,6 +133,7 @@ export function RentalLanding({
             <span>Понятные условия</span>
             <span>От получения до возврата</span>
           </section>
+          {catalog && <CatalogSection catalog={catalog} />}
           <section
             id="process"
             className="section container"
@@ -173,7 +189,7 @@ export function RentalLanding({
             aria-labelledby="rental-title"
             data-reveal
           >
-            <RentalPlanner city={city} />
+            <RentalPlanner city={city} items={catalog?.items} />
           </section>
           <section
             className="section container care-section"
@@ -211,7 +227,7 @@ export function RentalLanding({
               <h2 id="faq-title">Возможно, вы хотели спросить.</h2>
             </div>
             <div className="faq-list">
-              {questions.map(([question, answer]) => (
+              {faq.map(([question, answer]) => (
                 <details key={question}>
                   <summary>{question}</summary>
                   <p>{answer}</p>

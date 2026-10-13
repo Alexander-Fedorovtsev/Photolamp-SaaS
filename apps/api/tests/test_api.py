@@ -2,11 +2,72 @@ from collections.abc import Iterator
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from app.catalog import CatalogBranch, CatalogItem, PublicCatalog
 from app.config import Settings
 from app.main import create_app
+
+
+def catalog(slug: str) -> PublicCatalog:
+    city, display_name, accent = (
+        ("Уфа", "Солнечный дом · демо", "sun")
+        if slug == "demo-ufa"
+        else ("Казань", "Бережный свет · демо", "mint")
+    )
+    return PublicCatalog(
+        slug=slug,
+        display_name=display_name,
+        city=city,
+        timezone="Asia/Yekaterinburg" if slug == "demo-ufa" else "Europe/Moscow",
+        accent=accent,
+        public_note="Synthetic catalog",
+        is_demo=True,
+        booking_enabled=False,
+        branches=[
+            CatalogBranch(
+                id="d1000000-0000-0000-0000-000000000001",
+                name="Demo branch",
+                city=city,
+                timezone="Asia/Yekaterinburg",
+                pickup_enabled=True,
+                delivery_enabled=True,
+            )
+        ],
+        items=[
+            CatalogItem(
+                id="d2000000-0000-0000-0000-000000000001",
+                name="Demo lamp",
+                category="phototherapy_lamp",
+                manufacturer=None,
+                description="Synthetic item",
+                included_items=["lamp", "case", "instructions"],
+                illustration="floor",
+                amount_minor_per_day=49000,
+                deposit_minor=0,
+                currency="RUB",
+                minimum_days=3,
+                maximum_days=30,
+                price_is_demo=True,
+                listed_units=2,
+                serviceable_units=1,
+            )
+        ],
+    )
+
+
+@pytest.fixture(autouse=True)
+def catalog_loader() -> Iterator[AsyncMock]:
+    async def load(_: object, slug: str, *, allow_demo: bool) -> PublicCatalog:
+        if allow_demo and slug in {"demo-ufa", "demo-kazan"}:
+            return catalog(slug)
+        raise HTTPException(status_code=404, detail="Storefront not found")
+
+    loader = AsyncMock(side_effect=load)
+    with patch("app.main.load_public_catalog", new=loader):
+        yield loader
 
 
 @pytest.fixture
@@ -63,6 +124,17 @@ def test_distinct_public_previews(client: TestClient) -> None:
         assert tenant["tariff"] is None
 
 
+def test_public_catalog_is_explicit_demo_data(client: TestClient) -> None:
+    response = client.get("/api/v1/r/demo-ufa/catalog")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    body = response.json()
+    assert body["availability_confirmed"] is False
+    assert body["booking_enabled"] is False
+    assert body["items"][0]["price_is_demo"] is True
+    assert body["items"][0]["amount_minor_per_day"] == 49000
+
+
 def test_headers_do_not_change_public_slug(client: TestClient) -> None:
     response = client.get("/api/v1/r/demo-ufa/preview", headers={"X-Tenant-ID": "demo-kazan"})
     assert response.json()["slug"] == "demo-ufa"
@@ -86,11 +158,15 @@ def test_no_booking_or_auth_endpoints(client: TestClient) -> None:
         assert client.post(path, json={}).status_code == 404
 
 
-def test_openapi_matches_preview_contract(client: TestClient) -> None:
+def test_openapi_matches_catalog_contract(client: TestClient) -> None:
     schema = client.get("/openapi.json").json()
-    preview = schema["components"]["schemas"]["PreviewTenant"]["properties"]
-    assert preview["booking_enabled"]["const"] is False
-    assert preview["is_demo"]["const"] is True
+    assert "/api/v1/r/{tenant_slug}/catalog" in schema["paths"]
+    assert (
+        schema["components"]["schemas"]["PublicCatalog"]["properties"]["availability_confirmed"][
+            "const"
+        ]
+        is False
+    )
     assert "/api/v1/health/ready" in schema["paths"]
     assert "/api/v1/me/tenants" in schema["paths"]
     assert "/api/v1/t/{tenant_id}/context" in schema["paths"]

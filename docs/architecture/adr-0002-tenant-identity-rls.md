@@ -51,6 +51,6 @@ Integration-тесты работают под настоящей runtime рол
 чтения global identity/session таблиц, флаги роли, сброс scope при повторном
 использовании соединения, URL/header tampering и две независимые сессии.
 
-Composite tenant foreign keys появятся с первой дочерней доменной сущностью
-(инвентарь): у текущего membership tenant является самим родителем, поэтому
-составная ссылка пока не имеет второго scoped identifier.
+Composite tenant foreign keys для branches/models/assets/pricing реализованы в
+ADR 0003: asset и pricing невозможно связать с сущностью другого tenant даже при
+ошибке прикладного запроса.

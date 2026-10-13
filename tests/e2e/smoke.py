@@ -23,19 +23,21 @@ for base, health_path in [(api_url, "/api/v1/health/ready"), (web_url, "/api/hea
     assert json.loads(body)["status"] == "ready"
 
 for slug, city in [("demo-ufa", "Уфа"), ("demo-kazan", "Казань")]:
-    status, body = get(f"{api_url}/api/v1/r/{slug}/preview")
-    preview = json.loads(body)
-    assert status == 200 and preview["slug"] == slug and preview["city"] == city
-    assert preview["is_demo"] is True and preview["booking_enabled"] is False
+    status, body = get(f"{api_url}/api/v1/r/{slug}/catalog")
+    catalog = json.loads(body)
+    assert status == 200 and catalog["slug"] == slug and catalog["city"] == city
+    assert catalog["is_demo"] is True and catalog["booking_enabled"] is False
+    assert catalog["availability_confirmed"] is False and catalog["items"]
+    assert all(item["price_is_demo"] is True for item in catalog["items"])
     status, body = get(f"{web_url}/r/{slug}")
-    assert status == 200 and preview["display_name"] in body
+    assert status == 200 and catalog["display_name"] in body
 
-assert get(f"{api_url}/api/v1/r/unknown/preview")[0] == 404
+assert get(f"{api_url}/api/v1/r/unknown/catalog")[0] == 404
 assert get(f"{web_url}/r/unknown")[0] == 404
 assert get(f"{api_url}/api/v1/me/tenants")[0] == 401
 assert get(f"{api_url}/openapi.json")[0] == 200
 assert get(f"{web_url}/manifest.webmanifest")[0] == 200
 print(
-    "Stack smoke: readiness, two previews, auth boundary, unknown tenant, "
+    "Stack smoke: readiness, two database catalogs, auth boundary, unknown tenant, "
     "OpenAPI and manifest passed"
 )

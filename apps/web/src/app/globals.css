@@ -405,6 +405,100 @@ h3 {
   background: var(--bg);
   font-weight: 700;
 }
+.catalog-heading {
+  display: grid;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 30px;
+}
+.catalog-disclaimer {
+  max-width: 520px;
+  color: var(--muted);
+  padding: 16px 18px;
+  border-left: 4px solid var(--accent);
+  background: white;
+}
+.catalog-grid {
+  display: grid;
+  gap: 20px;
+}
+.catalog-card {
+  overflow: hidden;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+}
+.catalog-illustration {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  background: radial-gradient(circle at 50% 42%, #fff9dc 0 24%, transparent 25%), var(--scene-bg);
+}
+.catalog-illustration span {
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 112px;
+  border-radius: 46px 46px 22px 22px;
+  background: var(--accent);
+  color: var(--ink);
+  font-size: 46px;
+  box-shadow: 0 18px 40px #283e3c18;
+}
+.catalog-illustration[data-variant="compact"] span {
+  width: 112px;
+  height: 82px;
+  border-radius: 40px;
+}
+.catalog-illustration[data-variant="mobile"] span {
+  transform: rotate(-5deg);
+}
+.catalog-card-body {
+  padding: 24px;
+}
+.catalog-card-body > p:not(.catalog-label, .inventory-note) {
+  color: var(--muted);
+}
+.catalog-label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.catalog-card h3 {
+  margin-block: 8px 12px;
+  font-size: 23px;
+}
+.catalog-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-block: 22px;
+}
+.catalog-facts div {
+  padding: 13px;
+  border-radius: 14px;
+  background: var(--bg);
+}
+.catalog-facts dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+.catalog-facts dd {
+  margin: 4px 0 0;
+  font-weight: 700;
+}
+.inventory-note {
+  margin-bottom: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.catalog-source {
+  margin-top: 20px;
+  max-width: 720px;
+}
 .planner {
   display: grid;
   gap: 32px;
@@ -432,6 +526,9 @@ h3 {
   gap: 8px;
   font-size: 14px;
   font-weight: 700;
+}
+.planner-model {
+  grid-column: 1 / -1;
 }
 .planner-fields select {
   width: 100%;
@@ -536,6 +633,13 @@ h3 {
   }
   .planner-fields {
     grid-template-columns: repeat(2, 1fr);
+  }
+  .catalog-heading {
+    grid-template-columns: 1.15fr 0.85fr;
+    gap: 48px;
+  }
+  .catalog-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 @media (max-width: 999px) {

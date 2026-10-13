@@ -1,17 +1,17 @@
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
-test("planning controls do not quote a price or submit an order", async ({ page }) => {
+test("planning uses database demo pricing but cannot submit an order", async ({ page }) => {
   await page.goto("/r/demo-kazan");
   await page.getByLabel("Длительность аренды").selectOption("14");
   await page.getByLabel("Способ получения").selectOption("pickup");
   await expect(page.getByRole("status")).toContainText("14 дней · самовывоз");
-  await expect(page.getByRole("status")).toContainText("Тарифы пока не настроены");
-  await expect(page.getByRole("status")).not.toContainText("₽");
+  await expect(page.getByRole("status")).toContainText("Демо-расчёт: 6 300 ₽");
+  await expect(page.getByRole("status")).toContainText("не подтверждение наличия");
   await expect(page.locator("a[href^='tel:']")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Оформить аренду — скоро" })).toBeDisabled();
   await page.getByText("Сколько стоит аренда?", { exact: true }).click();
-  await expect(page.locator("details[open]")).toContainText("в демо нет вымышленных цен");
+  await expect(page.locator("details[open]")).toContainText("синтетические демо-тарифы");
   const results = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
     .analyze();

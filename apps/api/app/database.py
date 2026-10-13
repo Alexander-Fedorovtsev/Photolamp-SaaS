@@ -54,6 +54,30 @@ class Database:
             return None if value is None else UUID(str(value))
 
     @asynccontextmanager
+    async def public_tenant_transaction(
+        self, slug: str, *, allow_demo: bool
+    ) -> AsyncIterator["PublicTenantTransaction"]:
+        async with self.transaction() as session:
+            storefront = (
+                await session.execute(
+                    text("SELECT tenant_id, is_demo FROM resolve_public_storefront(:slug)"),
+                    {"slug": slug},
+                )
+            ).one_or_none()
+            if storefront is None or (storefront.is_demo and not allow_demo):
+                raise PublicStorefrontNotFound
+            tenant_id = UUID(str(storefront.tenant_id))
+            await session.execute(
+                text("SELECT set_config('app.tenant_id', :tenant_id, true)"),
+                {"tenant_id": str(tenant_id)},
+            )
+            yield PublicTenantTransaction(
+                session=session,
+                tenant_id=tenant_id,
+                is_demo=bool(storefront.is_demo),
+            )
+
+    @asynccontextmanager
     async def tenant_transaction(
         self, token_hash: bytes, tenant_id: UUID
     ) -> AsyncIterator["TenantTransaction"]:
@@ -85,9 +109,20 @@ class TenantAccessDenied(Exception):
     """The authenticated session has no active membership for this tenant."""
 
 
+class PublicStorefrontNotFound(Exception):
+    """The slug is not a published storefront in the current environment."""
+
+
 @dataclass(frozen=True, slots=True)
 class TenantTransaction:
     session: AsyncSession
     tenant_id: UUID
     user_id: UUID
     role: str
+
+
+@dataclass(frozen=True, slots=True)
+class PublicTenantTransaction:
+    session: AsyncSession
+    tenant_id: UUID
+    is_demo: bool
