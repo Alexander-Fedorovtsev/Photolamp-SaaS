@@ -29,6 +29,10 @@ make the record unstable.
 - Each command requires an idempotency key. Successful transitions append an
   `order_events` row with the staff actor and before/after states. Reusing a key
   for another command or order is rejected.
+- The staff workspace consumes the order contract through same-origin Next.js
+  routes. The browser keeps the opaque staff credential in an HttpOnly cookie,
+  validates privacy-minimized responses, filters the tenant queue by state and
+  exposes only transitions allowed by the backend contract.
 - Customer-facing confirmation remains unavailable. Staging keeps public booking
   disabled and payment state at `not_started`.
 - The existing `SmsProvider` port remains the extension point for a future real
@@ -38,7 +42,8 @@ make the record unstable.
 
 ## Consequences
 
-The backend now has a reviewable order lifecycle foundation and stable history,
+The backend and demo staff workspace now have a reviewable order lifecycle
+foundation and stable history,
 without claiming that real staff authentication, SMS delivery, payments or the
 public checkout are production-ready. Phone order creation can reuse the same
 snapshot, allocation and event rules in a later stage. A real SMS adapter can be
