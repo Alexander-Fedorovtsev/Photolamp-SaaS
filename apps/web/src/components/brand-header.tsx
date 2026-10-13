@@ -22,6 +22,7 @@ export function BrandHeader({
         <nav aria-label="Навигация по странице" className="header-nav">
           <a href="#process">Как это работает</a>
           <a href="#questions">Вопросы</a>
+          <Link href="/admin">Для арендодателя</Link>
           <a href="#rental" className="button primary">
             Условия аренды
           </a>
