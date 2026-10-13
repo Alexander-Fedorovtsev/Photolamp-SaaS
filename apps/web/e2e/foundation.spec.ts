@@ -3,7 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 
 test("home links to independent demo storefronts", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("Аренда с заботой");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Меньше хлопот");
   await page.getByRole("link", { name: /Посмотреть демо в Уфе/ }).click();
   await expect(page.getByRole("note")).toContainText("Демонстрационная витрина");
   await expect(page.locator("header")).toContainText("Солнечный дом");
