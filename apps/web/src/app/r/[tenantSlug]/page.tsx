@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { StorefrontPreview } from "@/components/storefront-preview";
 import { apiInternalUrl } from "@/lib/api";
-import { getTenantPreview } from "@/lib/tenant";
+import { getTenantCatalog } from "@/lib/tenant";
 
 type Props = { params: Promise<{ tenantSlug: string }> };
 
@@ -16,7 +16,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function Storefront({ params }: Props) {
   const { tenantSlug } = await params;
-  const tenant = await getTenantPreview(tenantSlug, apiInternalUrl());
+  const tenant = await getTenantCatalog(tenantSlug, apiInternalUrl());
   if (!tenant) notFound();
   return <StorefrontPreview tenant={tenant} />;
 }

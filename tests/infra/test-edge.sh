@@ -84,4 +84,4 @@ docker inspect --format '{{ index .Config.Labels "traefik.http.middlewares.photo
 import os, sys
 assert sys.stdin.read().strip() == os.environ["TRAEFIK_BASIC_AUTH_USERS"]
 '
-echo 'Staging edge passed: verified TLS, Basic Auth 401/200, previews, intact bcrypt and exact web/API SHA'
+echo 'Staging edge passed: verified TLS, Basic Auth 401/200, catalogs, intact bcrypt and exact web/API SHA'

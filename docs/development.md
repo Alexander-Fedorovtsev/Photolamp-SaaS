@@ -129,7 +129,8 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 | --- | --- |
 | API `/api/v1/health/live` | 200 при живом процессе |
 | API `/api/v1/health/ready` | 200 после PostgreSQL migration + Redis PING; иначе 503 |
-| API `/api/v1/r/{slug}/preview` | Публичный synthetic demo DTO, либо 404 |
+| API `/api/v1/r/{slug}/catalog` | DB-backed публичный demo-каталог без приватных asset-полей, либо 404 |
+| API `/api/v1/r/{slug}/preview` | Deprecated summary того же DB-backed каталога |
 | API `/api/v1/me/tenants` | Активные memberships непрозрачной сессии; 401 без неё |
 | API `/api/v1/t/{tenant_id}/context` | Проверенный tenant context под RLS; 404 для чужого tenant |
 | API `/docs`, `/openapi.json` | Реальная спецификация текущего API |
@@ -140,5 +141,6 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 
 План и границы SaaS: `architecture/adr-0001-foundation.md`.
 Реализованная tenant/RLS-модель: `architecture/adr-0002-tenant-identity-rls.md`.
-Подготовка следующего landing PR: `product/landing-foundation.md`.
+Каталог и публичная read-model: `architecture/adr-0003-catalog-inventory.md`.
+Реализованный landing: `product/landing-foundation.md`.
 Публикация staging и GitHub CD: `deployment.md`.

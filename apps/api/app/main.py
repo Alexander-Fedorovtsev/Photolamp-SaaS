@@ -3,14 +3,14 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 
+from app.catalog import PreviewTenant, PublicCatalog, load_public_catalog, preview_from_catalog
 from app.config import Settings
 from app.database import Database, create_engine
 from app.health import Readiness, check_readiness
-from app.previews import DEMO_TENANTS, PreviewTenant
 from app.tenancy import (
     TenantContext,
     TenantSummary,
@@ -46,7 +46,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
         description=(
-            "Tenant/RLS foundation with synthetic public previews. "
+            "Tenant/RLS foundation with a synthetic database-backed catalog. "
             "Session issuance, booking, SMS and payments are unavailable."
         ),
     )
@@ -79,12 +79,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             headers={"Cache-Control": "no-store"},
         )
 
-    @application.get("/api/v1/r/{tenant_slug}/preview", tags=["demo"], response_model=PreviewTenant)
-    async def preview(tenant_slug: str) -> PreviewTenant:
-        tenant = DEMO_TENANTS.get(tenant_slug) if config.enable_demo_previews else None
-        if tenant is None:
-            raise HTTPException(status_code=404, detail="Preview not found")
-        return tenant
+    @application.get(
+        "/api/v1/r/{tenant_slug}/catalog",
+        tags=["storefront"],
+        response_model=PublicCatalog,
+    )
+    async def public_catalog(
+        tenant_slug: str,
+        response: Response,
+        db: Annotated[Database, Depends(database)],
+    ) -> PublicCatalog:
+        response.headers["Cache-Control"] = "no-store"
+        return await load_public_catalog(db, tenant_slug, allow_demo=config.enable_demo_previews)
+
+    @application.get(
+        "/api/v1/r/{tenant_slug}/preview",
+        tags=["storefront"],
+        response_model=PreviewTenant,
+        deprecated=True,
+    )
+    async def preview(
+        tenant_slug: str,
+        response: Response,
+        db: Annotated[Database, Depends(database)],
+    ) -> PreviewTenant:
+        response.headers["Cache-Control"] = "no-store"
+        catalog = await load_public_catalog(db, tenant_slug, allow_demo=config.enable_demo_previews)
+        return preview_from_catalog(catalog)
 
     @application.get(
         "/api/v1/me/tenants",

@@ -7,12 +7,19 @@ test("home links to independent demo storefronts", async ({ page }) => {
   await page.getByRole("link", { name: /Посмотреть демо в Уфе/ }).click();
   await expect(page.getByRole("note")).toContainText("Демонстрационная витрина");
   await expect(page.locator("header")).toContainText("Солнечный дом");
+  await expect(
+    page.getByRole("heading", { name: "Выберите подходящий формат лампы." }),
+  ).toBeVisible();
+  await expect(page.locator(".catalog-card")).toHaveCount(2);
+  await expect(page.getByRole("heading", { name: "Домашняя LED-фотолампа" })).toBeVisible();
+  await expect(page.locator("#catalog")).toContainText("данные из PostgreSQL");
   await expect(page.getByRole("button", { name: "Оформить аренду — скоро" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Заказать по телефону — скоро" })).toBeDisabled();
   await page.goto("/r/demo-kazan");
   await expect(page.locator("header")).toContainText("Бережный свет");
   await expect(page.locator("header")).not.toContainText("Солнечный дом");
   await expect(page.locator('[data-accent="mint"]')).toBeVisible();
+  await expect(page.locator(".catalog-card")).toHaveCount(1);
 });
 
 test("unknown storefront returns 404", async ({ page }) => {
