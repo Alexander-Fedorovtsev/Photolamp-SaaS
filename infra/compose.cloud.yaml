@@ -1,5 +1,9 @@
 # Optional cloud-only build trust. The public CA is mounted by BuildKit, never copied.
 services:
+  db-bootstrap:
+    build:
+      context: ./apps/api
+      secrets: [proxy_ca]
   migrate:
     build:
       context: ./apps/api

@@ -3,8 +3,12 @@ name: photolamp
 x-api-environment: &api-environment
   APP_ENV: ${APP_ENV:-development}
   ENABLE_DEMO_PREVIEWS: ${ENABLE_DEMO_PREVIEWS:-true}
-  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-photolamp}:${POSTGRES_PASSWORD:-local-development-only}@postgres:5432/${POSTGRES_DB:-photolamp}
+  DATABASE_URL: postgresql+asyncpg://photolamp_runtime:${POSTGRES_RUNTIME_PASSWORD:-local-runtime-only}@postgres:5432/${POSTGRES_DB:-photolamp}
   REDIS_URL: redis://redis:6379/0
+
+x-owner-environment: &owner-environment
+  DATABASE_URL: postgresql+asyncpg://photolamp_runtime:${POSTGRES_RUNTIME_PASSWORD:-local-runtime-only}@postgres:5432/${POSTGRES_DB:-photolamp}
+  DATABASE_OWNER_URL: postgresql+asyncpg://${POSTGRES_USER:-photolamp}:${POSTGRES_PASSWORD:-local-development-only}@postgres:5432/${POSTGRES_DB:-photolamp}
 
 services:
   postgres:
@@ -31,13 +35,22 @@ services:
       timeout: 3s
       retries: 12
 
+  db-bootstrap:
+    image: photolamp-api:local
+    build: ./apps/api
+    environment: *owner-environment
+    command: ["python", "-m", "app.bootstrap_runtime_role"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
   migrate:
     image: photolamp-api:local
     build: ./apps/api
-    environment: *api-environment
+    environment: *owner-environment
     command: ["alembic", "upgrade", "head"]
     depends_on:
-      postgres: { condition: service_healthy }
+      db-bootstrap: { condition: service_completed_successfully }
     restart: "no"
 
   api:

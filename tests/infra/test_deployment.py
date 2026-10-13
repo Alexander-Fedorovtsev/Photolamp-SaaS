@@ -90,6 +90,7 @@ class StagingTopology(unittest.TestCase):
             **os.environ,
             "PHOTOLAMP_DEPLOY_SHA": SHA,
             "POSTGRES_PASSWORD": "a" * 64,
+            "POSTGRES_RUNTIME_PASSWORD": "b" * 64,
             "TRAEFIK_BASIC_AUTH_USERS": AUTH,
         }
         result = subprocess.run(
@@ -121,7 +122,7 @@ class StagingTopology(unittest.TestCase):
         self.assertEqual(serialized.replace("$$", "$"), AUTH)
 
     def test_rejects_host_ports_and_shared_database_network(self):
-        for service in ["api", "web", "postgres", "redis"]:
+        for service in ["api", "web", "postgres", "redis", "db-bootstrap", "migrate"]:
             changed = copy.deepcopy(self.model)
             changed["services"][service]["ports"] = [{"published": "8000"}]
             with self.subTest(service=service), self.assertRaises(ValueError):
@@ -149,6 +150,20 @@ class StagingTopology(unittest.TestCase):
             "local-development-only"
         )
         with self.assertRaises(ValueError):
+            self.validator.validate(changed)
+
+    def test_runtime_role_is_separate_and_owner_url_is_not_exposed_to_api(self):
+        changed = copy.deepcopy(self.model)
+        changed["services"]["api"]["environment"]["DATABASE_URL"] = changed["services"][
+            "migrate"
+        ]["environment"]["DATABASE_OWNER_URL"]
+        with self.assertRaisesRegex(ValueError, "separate 64-character runtime"):
+            self.validator.validate(changed)
+        changed = copy.deepcopy(self.model)
+        changed["services"]["api"]["environment"]["DATABASE_OWNER_URL"] = (
+            "must-not-reach-api"
+        )
+        with self.assertRaisesRegex(ValueError, "must not receive database owner"):
             self.validator.validate(changed)
         changed = copy.deepcopy(self.model)
         changed["services"]["web"]["labels"][

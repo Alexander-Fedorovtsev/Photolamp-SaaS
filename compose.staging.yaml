@@ -4,7 +4,14 @@ name: photolamp-test
 x-staging-environment: &staging-environment
   APP_ENV: staging
   ENABLE_DEMO_PREVIEWS: "true"
-  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-photolamp}:${POSTGRES_PASSWORD:?Configure a staging database password}@postgres:5432/${POSTGRES_DB:-photolamp}
+  DATABASE_URL: postgresql+asyncpg://photolamp_runtime:${POSTGRES_RUNTIME_PASSWORD:?Configure a staging runtime database password}@postgres:5432/${POSTGRES_DB:-photolamp}
+  REDIS_URL: redis://redis:6379/0
+
+x-staging-owner-environment: &staging-owner-environment
+  APP_ENV: staging
+  ENABLE_DEMO_PREVIEWS: "true"
+  DATABASE_URL: postgresql+asyncpg://photolamp_runtime:${POSTGRES_RUNTIME_PASSWORD:?Configure a staging runtime database password}@postgres:5432/${POSTGRES_DB:-photolamp}
+  DATABASE_OWNER_URL: postgresql+asyncpg://${POSTGRES_USER:-photolamp}:${POSTGRES_PASSWORD:?Configure a staging database password}@postgres:5432/${POSTGRES_DB:-photolamp}
   REDIS_URL: redis://redis:6379/0
 
 x-api-build: &api-build
@@ -27,10 +34,19 @@ services:
     ports: !reset []
     networks: [internal]
 
+  db-bootstrap:
+    image: photolamp-test-api:${PHOTOLAMP_DEPLOY_SHA:?An exact CI-tested SHA is required}
+    build: *api-build
+    environment: *staging-owner-environment
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    networks: [internal]
+
   migrate:
     image: photolamp-test-api:${PHOTOLAMP_DEPLOY_SHA:?An exact CI-tested SHA is required}
     build: *api-build
-    environment: *staging-environment
+    environment: *staging-owner-environment
     read_only: true
     tmpfs: [/tmp]
     security_opt: ["no-new-privileges:true"]

@@ -44,7 +44,7 @@ Multi-tenant SaaS-платформа для аренды фотоламп и д�
 - **Queue / jobs:** Redis + worker
 - **Infra:** Docker Compose (MVP), Traefik/Caddy or Nginx, object storage compatible with S3
 
-## Рабочая версия: этап 0
+## Рабочая версия: landing + tenant foundation
 
 Создана воспроизводимая основа: Next.js 16 + strict TypeScript, FastAPI/Python 3.12,
 SQLAlchemy, PostgreSQL 16, Redis 7, Alembic, Docker Compose, lint/format/typecheck,
@@ -61,12 +61,14 @@ python3 tests/e2e/smoke.py
 API/OpenAPI: <http://localhost:8000/docs>.
 
 Только вымышленные публичные бренды; оформление заказа, SMS, платежи и телефон
-оператора недоступны. Tenant auth/RLS и бизнес-таблицы ещё не реализованы.
-Приватные клиентские данные не обрабатываются. Полноценный анимированный landing
-page — следующий этап; текущая версия содержит адаптивный shell и SVG-placeholder.
+оператора недоступны. Реализованы users/tenants/memberships, opaque session lookup,
+отдельная least-privilege роль PostgreSQL и FORCE RLS. Выпуск сессий и SMS ещё не
+реализованы, staging остаётся пустым и не обрабатывает персональные данные.
+Главная содержит полноценный адаптивный landing с лёгкой SVG-анимацией.
 
 - [Локальный запуск, проверки и облачная сборка](docs/development.md)
 - [Архитектурные решения и контракт tenant isolation/RLS](docs/architecture/adr-0001-foundation.md)
+- [Реализованная tenant identity и RLS-модель](docs/architecture/adr-0002-tenant-identity-rls.md)
 - [Структура следующего этапа landing page](docs/product/landing-foundation.md)
 - [Демо photolamp-test.anliwei.pro и настройка Continuous Deployment](docs/deployment.md)
 

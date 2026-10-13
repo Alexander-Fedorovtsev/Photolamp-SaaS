@@ -21,6 +21,7 @@ trap on_error ERR
 [[ -d /mnt/raid/photolamp-test/postgres && ! -L /mnt/raid/photolamp-test/postgres ]] || fail 'Run bootstrap-host.sh first'
 [[ "$(stat -c '%u:%g:%a' /mnt/raid/photolamp-test/postgres)" == '999:999:700' ]] || fail 'PostgreSQL directory needs ownership 999:999 and mode 700'
 docker network inspect traefik >/dev/null 2>&1 || fail 'Existing Traefik network is required'
+python3 infra/scripts/ensure-runtime-password.py "$env_file"
 "${compose[@]}" config --format json | python3 infra/scripts/check-staging-config.py
 
 read_env() {

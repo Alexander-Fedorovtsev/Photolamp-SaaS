@@ -92,6 +92,9 @@ def test_openapi_matches_preview_contract(client: TestClient) -> None:
     assert preview["booking_enabled"]["const"] is False
     assert preview["is_demo"]["const"] is True
     assert "/api/v1/health/ready" in schema["paths"]
+    assert "/api/v1/me/tenants" in schema["paths"]
+    assert "/api/v1/t/{tenant_id}/context" in schema["paths"]
+    assert "HTTPBearer" in schema["components"]["securitySchemes"]
 
 
 @pytest.mark.parametrize(

@@ -10,6 +10,8 @@ export STAGING_TEST_DATA_DIR="$test_dir/postgres"
 export PHOTOLAMP_DEPLOY_SHA="${PHOTOLAMP_DEPLOY_SHA:-$(git rev-parse HEAD)}"
 export POSTGRES_PASSWORD
 POSTGRES_PASSWORD="$(openssl rand -hex 32)"
+export POSTGRES_RUNTIME_PASSWORD
+POSTGRES_RUNTIME_PASSWORD="$(openssl rand -hex 32)"
 # Public, synthetic test credentials. Do not use these in server configuration.
 # shellcheck disable=SC2016
 export TRAEFIK_BASIC_AUTH_USERS='demo-test:$2b$05$68B.eqKkR1S8P23Fevk9Luq2JPiasI8FL.MGS9GC37gS5LxTcoSFC'
