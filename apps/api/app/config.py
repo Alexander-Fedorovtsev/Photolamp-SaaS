@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     redis_url: SecretStr = SecretStr("redis://localhost:6379/0")
     enable_demo_previews: bool = False
     dependency_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
+    hold_ttl_seconds: int = Field(default=600, ge=60, le=1800)
 
     @model_validator(mode="after")
     def validate_environment(self) -> "Settings":

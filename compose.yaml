@@ -3,6 +3,7 @@ name: photolamp
 x-api-environment: &api-environment
   APP_ENV: ${APP_ENV:-development}
   ENABLE_DEMO_PREVIEWS: ${ENABLE_DEMO_PREVIEWS:-true}
+  HOLD_TTL_SECONDS: ${HOLD_TTL_SECONDS:-600}
   DATABASE_URL: postgresql+asyncpg://photolamp_runtime:${POSTGRES_RUNTIME_PASSWORD:-local-runtime-only}@postgres:5432/${POSTGRES_DB:-photolamp}
   REDIS_URL: redis://redis:6379/0
 
