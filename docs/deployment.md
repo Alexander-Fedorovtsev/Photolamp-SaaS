@@ -128,6 +128,10 @@ SERVER_IP ssh-ed25519 PUBLIC_HOST_KEY_FROM_SERVER
 Deployment branches: selected branches → `main`. Для полностью автоматического
 CD не добавляйте required reviewers к этому environment.
 
+Remote deploy делает до пяти попыток `git fetch` с ограниченной задержкой. Это
+переживает краткие сетевые разрывы между staging-сервером и GitHub; после
+исчерпания попыток job завершается без checkout и без переключения контейнеров.
+
 В environment `staging` → Secrets добавьте:
 
 | Secret | Значение |
