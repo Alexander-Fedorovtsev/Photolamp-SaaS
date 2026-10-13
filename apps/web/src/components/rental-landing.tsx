@@ -84,7 +84,7 @@ export function RentalLanding({
         question === "Сколько стоит аренда?"
           ? [
               question,
-              "На карточках показаны синтетические демо-тарифы из базы данных. Они нужны для проверки каталога и интерфейса, не являются офертой и не подтверждают итоговую стоимость или наличие на выбранные даты.",
+              "На карточках показаны синтетические демо-тарифы из базы данных. В форме можно получить серверный расчёт и снимок доступности на выбранные даты. Проверка не резервирует лампу, а цена не является офертой.",
             ]
           : [question, answer],
       )
@@ -94,7 +94,7 @@ export function RentalLanding({
       <BrandHeader name={name} city={city} landing />
       <div className="demo-notice" role="note">
         {catalog
-          ? "Демонстрационная витрина. Каталог и цены синтетические; аренда, контакты и проверка доступности пока отключены."
+          ? "Демонстрационная витрина. Можно проверить даты и серверный расчёт по синтетическим тарифам; бронь, контакты и оплата отключены."
           : "Демонстрационная витрина. Аренда пока недоступна; тарифы и контакты не настроены."}
       </div>
       <MotionControls>
@@ -189,7 +189,12 @@ export function RentalLanding({
             aria-labelledby="rental-title"
             data-reveal
           >
-            <RentalPlanner city={city} items={catalog?.items} />
+            <RentalPlanner
+              city={city}
+              tenantSlug={catalog?.slug}
+              branches={catalog?.branches}
+              items={catalog?.items}
+            />
           </section>
           <section
             className="section container care-section"

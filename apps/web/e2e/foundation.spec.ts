@@ -13,7 +13,7 @@ test("home links to independent demo storefronts", async ({ page }) => {
   await expect(page.locator(".catalog-card")).toHaveCount(2);
   await expect(page.getByRole("heading", { name: "Домашняя LED-фотолампа" })).toBeVisible();
   await expect(page.locator("#catalog")).toContainText("данные из PostgreSQL");
-  await expect(page.getByRole("button", { name: "Оформить аренду — скоро" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Перейти к бронированию — скоро" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Заказать по телефону — скоро" })).toBeDisabled();
   await page.goto("/r/demo-kazan");
   await expect(page.locator("header")).toContainText("Бережный свет");

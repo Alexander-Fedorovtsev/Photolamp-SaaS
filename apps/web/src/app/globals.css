@@ -819,7 +819,8 @@ h3 {
 .planner-model {
   grid-column: 1 / -1;
 }
-.planner-fields select {
+.planner-fields select,
+.planner-fields input {
   width: 100%;
   min-width: 0;
   font: inherit;
@@ -830,6 +831,13 @@ h3 {
   padding: 12px;
   color: var(--ink);
   background: #fcfaf5;
+}
+.planner-check {
+  width: 100%;
+  margin-top: 22px;
+}
+.planner-error {
+  color: #8a2d24;
 }
 .planner-result {
   display: grid;

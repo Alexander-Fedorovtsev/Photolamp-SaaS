@@ -136,6 +136,9 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 | API `POST /api/v1/auth/demo-session` | Короткая синтетическая staff session только при demo-режиме; production возвращает 404 |
 | API `/api/v1/t/{tenant_id}/catalog-admin` | Приватная staff read-model после session + membership + RLS проверки |
 | API `POST/PATCH /api/v1/t/{tenant_id}/{models,assets,pricing,branches}` | Owner/admin CRUD без доверия к tenant ID из body; изменения аудируются |
+| API `/api/v1/r/{slug}/availability` | Агрегированная доступность модели на включительный диапазон дат |
+| API `POST /api/v1/r/{slug}/checkout/quote` | Серверный расчёт тарифа и снимок доступности без резервирования |
+| API `POST /api/v1/t/{tenant_id}/assets/{asset_id}/blocks` | Tenant-scoped сервисная блокировка прибора с аудитом |
 | API `/docs`, `/openapi.json` | Реальная спецификация текущего API |
 | Web `/admin` | Адаптивная demo-панель с HttpOnly session proxy; не production-auth |
 | Web `/api/health/live` | 200 при живом web |
@@ -147,5 +150,6 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 Реализованная tenant/RLS-модель: `architecture/adr-0002-tenant-identity-rls.md`.
 Каталог и публичная read-model: `architecture/adr-0003-catalog-inventory.md`.
 Demo staff admin и аудит: `architecture/adr-0004-demo-staff-admin.md`.
+Availability и серверный quote: `architecture/adr-0005-availability-quote.md`.
 Реализованный landing: `product/landing-foundation.md`.
 Публикация staging и GitHub CD: `deployment.md`.

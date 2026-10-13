@@ -1,5 +1,6 @@
 import os
 from collections.abc import AsyncIterator
+from datetime import date, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -107,6 +108,19 @@ async def test_demo_owner_manages_catalog_and_public_read_model(
     assert asset_response.status_code == 201
     asset_id = asset_response.json()["id"]
 
+    block_response = await client.post(
+        f"/api/v1/t/{tenant_id}/assets/{asset_id}/blocks",
+        headers=headers,
+        json={
+            "start_date": (date.today() + timedelta(days=20)).isoformat(),
+            "end_date": (date.today() + timedelta(days=21)).isoformat(),
+            "reason": "inspection",
+            "note": "Synthetic admin test block",
+        },
+    )
+    assert block_response.status_code == 201
+    block_id = block_response.json()["id"]
+
     pricing_response = await client.post(
         f"/api/v1/t/{tenant_id}/pricing",
         headers=headers,
@@ -132,6 +146,7 @@ async def test_demo_owner_manages_catalog_and_public_read_model(
     refreshed = (await client.get(snapshot_url, headers=headers)).json()
     assert any(item["id"] == model_id for item in refreshed["models"])
     assert any(item["asset_code"] == f"TEST-{marker}" for item in refreshed["assets"])
+    assert any(item["id"] == block_id for item in refreshed["asset_blocks"])
     public = await client.get("/api/v1/r/demo-ufa/catalog")
     assert public.status_code == 200
     assert any(item["id"] == model_id for item in public.json()["items"])
@@ -148,6 +163,11 @@ async def test_demo_owner_manages_catalog_and_public_read_model(
         json={"state": "inspection"},
     )
     assert missing.status_code == 404
+    removed_block = await client.delete(
+        f"/api/v1/t/{tenant_id}/asset-blocks/{block_id}", headers=headers
+    )
+    assert removed_block.status_code == 200
+    assert removed_block.json()["deleted"] is True
     rejected_tenant_body = await client.post(
         f"/api/v1/t/{tenant_id}/branches",
         headers=headers,
@@ -166,7 +186,7 @@ async def test_demo_owner_manages_catalog_and_public_read_model(
             audit_count = await connection.scalar(
                 text(
                     "SELECT count(*) FROM audit_events WHERE tenant_id = :tenant_id "
-                    "AND entity_id IN (:branch_id, :model_id, :asset_id, :pricing_id)"
+                    "AND entity_id IN (:branch_id, :model_id, :asset_id, :pricing_id, :block_id)"
                 ),
                 {
                     "tenant_id": tenant_id,
@@ -174,19 +194,21 @@ async def test_demo_owner_manages_catalog_and_public_read_model(
                     "model_id": model_id,
                     "asset_id": asset_id,
                     "pricing_id": pricing_id,
+                    "block_id": block_id,
                 },
             )
-            assert audit_count == 8
+            assert audit_count == 10
             await connection.execute(
                 text(
                     "DELETE FROM audit_events "
-                    "WHERE entity_id IN (:branch, :model, :asset, :pricing)"
+                    "WHERE entity_id IN (:branch, :model, :asset, :pricing, :block)"
                 ),
                 {
                     "branch": branch_id,
                     "model": model_id,
                     "asset": asset_id,
                     "pricing": pricing_id,
+                    "block": block_id,
                 },
             )
             await connection.execute(

@@ -161,6 +161,8 @@ def test_no_booking_or_auth_endpoints(client: TestClient) -> None:
 def test_openapi_matches_catalog_contract(client: TestClient) -> None:
     schema = client.get("/openapi.json").json()
     assert "/api/v1/r/{tenant_slug}/catalog" in schema["paths"]
+    assert "/api/v1/r/{tenant_slug}/availability" in schema["paths"]
+    assert "/api/v1/r/{tenant_slug}/checkout/quote" in schema["paths"]
     assert (
         schema["components"]["schemas"]["PublicCatalog"]["properties"]["availability_confirmed"][
             "const"

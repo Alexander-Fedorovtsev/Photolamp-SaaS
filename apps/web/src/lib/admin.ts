@@ -52,6 +52,16 @@ const pricingSchema = z.object({
   is_demo: z.boolean(),
 });
 
+const assetBlockSchema = z.object({
+  id: z.string(),
+  asset_id: z.string(),
+  asset_code: z.string(),
+  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  reason: z.enum(["maintenance", "inspection", "manual"]),
+  note: z.string().nullable(),
+});
+
 export const adminCatalogSchema = z.object({
   tenant_id: z.string(),
   role: z.enum(["owner", "admin", "operator", "courier"]),
@@ -59,6 +69,7 @@ export const adminCatalogSchema = z.object({
   models: z.array(modelSchema),
   assets: z.array(assetSchema),
   pricing: z.array(pricingSchema),
+  asset_blocks: z.array(assetBlockSchema).default([]),
 });
 
 export type Membership = z.infer<typeof membershipSchema>;

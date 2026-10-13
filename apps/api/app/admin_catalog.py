@@ -1,6 +1,7 @@
 """Tenant-scoped staff catalog commands and read model."""
 
 import json
+from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
@@ -67,6 +68,17 @@ class PricingRule(BaseModel):
     is_demo: bool
 
 
+class AssetBlock(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    id: UUID
+    asset_id: UUID
+    asset_code: str
+    start_date: date
+    end_date: date
+    reason: Literal["maintenance", "inspection", "manual"]
+    note: str | None
+
+
 class CatalogAdminSnapshot(BaseModel):
     model_config = ConfigDict(frozen=True)
     tenant_id: UUID
@@ -75,6 +87,7 @@ class CatalogAdminSnapshot(BaseModel):
     models: list[EquipmentModel]
     assets: list[Asset]
     pricing: list[PricingRule]
+    asset_blocks: list[AssetBlock]
 
 
 class BranchCreate(BaseModel):
@@ -150,6 +163,14 @@ class PricingPatch(BaseModel):
     state: PricingState | None = None
 
 
+class AssetBlockCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    start_date: date
+    end_date: date
+    reason: Literal["maintenance", "inspection", "manual"]
+    note: Annotated[str, Field(min_length=1, max_length=240)] | None = None
+
+
 def require_catalog_editor(transaction: TenantTransaction) -> None:
     if transaction.role not in {"owner", "admin"}:
         raise CatalogPermissionDenied
@@ -187,6 +208,14 @@ async def load_admin_catalog(transaction: TenantTransaction) -> CatalogAdminSnap
             "ORDER BY m.name, p.created_at"
         )
     )
+    blocks = await session.execute(
+        text(
+            "SELECT ab.id, ab.asset_id, a.asset_code, ab.start_date, ab.end_date, "
+            "ab.reason, ab.note FROM asset_blocks ab "
+            "JOIN assets a ON a.id = ab.asset_id "
+            "ORDER BY ab.start_date, a.asset_code"
+        )
+    )
     return CatalogAdminSnapshot(
         tenant_id=transaction.tenant_id,
         role=transaction.role,
@@ -194,6 +223,7 @@ async def load_admin_catalog(transaction: TenantTransaction) -> CatalogAdminSnap
         models=[EquipmentModel.model_validate(dict(row._mapping)) for row in models],
         assets=[Asset.model_validate(dict(row._mapping)) for row in assets],
         pricing=[PricingRule.model_validate(dict(row._mapping)) for row in pricing],
+        asset_blocks=[AssetBlock.model_validate(dict(row._mapping)) for row in blocks],
     )
 
 
@@ -290,6 +320,45 @@ async def create_pricing(transaction: TenantTransaction, command: PricingCreate)
     )
     await _audit(transaction, "pricing.created", "pricing_rule", entity_id, values)
     return entity_id
+
+
+async def create_asset_block(
+    transaction: TenantTransaction, asset_id: UUID, command: AssetBlockCreate
+) -> UUID:
+    require_catalog_editor(transaction)
+    if command.end_date < command.start_date:
+        raise InvalidCatalogCommand("end_date must not be before start_date")
+    entity_id = uuid4()
+    values = command.model_dump()
+    result = await transaction.session.execute(
+        text(
+            "INSERT INTO asset_blocks "
+            "(id, tenant_id, asset_id, start_date, end_date, reason, note) "
+            "SELECT :id, :tenant_id, id, :start_date, :end_date, :reason, :note "
+            "FROM assets WHERE id = :asset_id RETURNING id"
+        ),
+        {
+            "id": entity_id,
+            "tenant_id": transaction.tenant_id,
+            "asset_id": asset_id,
+            **values,
+        },
+    )
+    if result.scalar_one_or_none() is None:
+        raise CatalogEntityNotFound
+    await _audit(transaction, "asset_block.created", "asset_block", entity_id, values)
+    return entity_id
+
+
+async def delete_asset_block(transaction: TenantTransaction, entity_id: UUID) -> None:
+    require_catalog_editor(transaction)
+    result = await transaction.session.execute(
+        text("DELETE FROM asset_blocks WHERE id = :entity_id RETURNING id"),
+        {"entity_id": entity_id},
+    )
+    if result.scalar_one_or_none() is None:
+        raise CatalogEntityNotFound
+    await _audit(transaction, "asset_block.deleted", "asset_block", entity_id, {})
 
 
 async def _patch_entity(
