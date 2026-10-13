@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -6,7 +7,10 @@ from uuid import UUID
 from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
+from sqlalchemy.exc import IntegrityError
 
+from app.admin_routes import router as admin_router
+from app.auth import DemoSession, SessionRevoked, issue_demo_session, revoke_session
 from app.catalog import PreviewTenant, PublicCatalog, load_public_catalog, preview_from_catalog
 from app.config import Settings
 from app.database import Database, create_engine
@@ -19,6 +23,8 @@ from app.tenancy import (
     list_memberships,
     session_digest,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -46,10 +52,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
         description=(
-            "Tenant/RLS foundation with a synthetic database-backed catalog. "
-            "Session issuance, booking, SMS and payments are unavailable."
+            "Tenant/RLS foundation with an auditable database-backed catalog. "
+            "Synthetic demo staff access is environment-gated; SMS, booking and payments "
+            "are unavailable."
         ),
     )
+    application.include_router(admin_router)
+
+    @application.exception_handler(IntegrityError)
+    async def integrity_conflict(_request: object, _error: IntegrityError) -> JSONResponse:
+        logger.warning("Catalog integrity conflict: %s", _error.orig)
+        return JSONResponse(
+            {"detail": "Catalog data conflicts with an existing or related record"},
+            status_code=409,
+        )
 
     @application.get("/api/v1/health/live", tags=["health"])
     async def live() -> dict[str, str]:
@@ -106,6 +122,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers["Cache-Control"] = "no-store"
         catalog = await load_public_catalog(db, tenant_slug, allow_demo=config.enable_demo_previews)
         return preview_from_catalog(catalog)
+
+    @application.post(
+        "/api/v1/auth/demo-session",
+        tags=["authentication"],
+        response_model=DemoSession,
+    )
+    async def demo_session(
+        response: Response,
+        db: Annotated[Database, Depends(database)],
+    ) -> DemoSession:
+        if not config.enable_demo_previews or config.app_env == "production":
+            raise HTTPException(status_code=404, detail="Demo session unavailable")
+        response.headers["Cache-Control"] = "no-store"
+        return await issue_demo_session(db)
+
+    @application.delete(
+        "/api/v1/auth/session",
+        tags=["authentication"],
+        response_model=SessionRevoked,
+    )
+    async def logout(
+        digest: Annotated[bytes, Depends(session_digest)],
+        db: Annotated[Database, Depends(database)],
+    ) -> SessionRevoked:
+        return await revoke_session(db, digest)
 
     @application.get(
         "/api/v1/me/tenants",
