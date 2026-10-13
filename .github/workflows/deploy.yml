@@ -44,14 +44,8 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           set -Eeuo pipefail
-          [[ "$DEPLOY_SHA" =~ ^[a-f0-9]{40}$ ]]
-          curl --fail --silent --show-error \
-            --header "Accept: application/vnd.github+json" \
-            --header "Authorization: Bearer $GH_TOKEN" \
-            --header "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/$REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=push&status=completed&head_sha=$DEPLOY_SHA&per_page=10" \
-            > "$RUNNER_TEMP/photolamp-ci-runs.json"
-          python3 infra/scripts/check-ci-run.py "$DEPLOY_SHA" "$REPOSITORY" < "$RUNNER_TEMP/photolamp-ci-runs.json"
+          bash infra/scripts/verify-ci-run.sh \
+            "$DEPLOY_SHA" "$REPOSITORY" "$RUNNER_TEMP/photolamp-ci-runs.json"
       - name: Configure verified SSH access
         env:
           STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
