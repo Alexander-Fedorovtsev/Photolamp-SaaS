@@ -5,7 +5,7 @@ from datetime import date
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 from sqlalchemy.exc import IntegrityError
@@ -17,6 +17,7 @@ from app.catalog import PreviewTenant, PublicCatalog, load_public_catalog, previ
 from app.config import Settings
 from app.database import Database, create_engine
 from app.health import Readiness, check_readiness
+from app.holds import ReleasedHold, RentalHold, create_hold, release_hold
 from app.tenancy import (
     TenantContext,
     TenantSummary,
@@ -55,8 +56,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
         description=(
             "Tenant/RLS foundation with an auditable catalog and date-aware quote preview. "
-            "Synthetic demo staff access is environment-gated; holds, booking, SMS and payments "
-            "are unavailable."
+            "Synthetic demo staff access is environment-gated. Short-lived inventory holds are "
+            "available only for explicitly enabled storefronts; orders, SMS and payments are "
+            "unavailable."
         ),
     )
     application.include_router(admin_router)
@@ -165,6 +167,54 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers["Cache-Control"] = "no-store"
         return await calculate_quote(
             db, tenant_slug, command, allow_demo=config.enable_demo_previews
+        )
+
+    @application.post(
+        "/api/v1/r/{tenant_slug}/checkout/holds",
+        tags=["storefront"],
+        response_model=RentalHold,
+        status_code=201,
+    )
+    async def public_hold(
+        tenant_slug: str,
+        command: QuoteRequest,
+        response: Response,
+        db: Annotated[Database, Depends(database)],
+        idempotency_key: Annotated[
+            str, Header(alias="Idempotency-Key", min_length=16, max_length=128)
+        ],
+    ) -> RentalHold:
+        response.headers["Cache-Control"] = "no-store"
+        return await create_hold(
+            db,
+            tenant_slug,
+            command,
+            idempotency_key,
+            allow_demo=config.enable_demo_previews,
+            ttl_seconds=config.hold_ttl_seconds,
+        )
+
+    @application.delete(
+        "/api/v1/r/{tenant_slug}/checkout/holds/{hold_id}",
+        tags=["storefront"],
+        response_model=ReleasedHold,
+    )
+    async def public_release_hold(
+        tenant_slug: str,
+        hold_id: UUID,
+        response: Response,
+        db: Annotated[Database, Depends(database)],
+        management_token: Annotated[
+            str, Header(alias="X-Hold-Token", min_length=32, max_length=128)
+        ],
+    ) -> ReleasedHold:
+        response.headers["Cache-Control"] = "no-store"
+        return await release_hold(
+            db,
+            tenant_slug,
+            hold_id,
+            management_token,
+            allow_demo=config.enable_demo_previews,
         )
 
     @application.post(

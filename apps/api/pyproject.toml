@@ -44,3 +44,6 @@ asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 pythonpath = ["."]
 markers = ["integration: requires a migrated PostgreSQL database and Redis"]
+
+[tool.coverage.run]
+concurrency = ["greenlet", "thread"]

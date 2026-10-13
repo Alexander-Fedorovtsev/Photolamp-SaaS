@@ -138,6 +138,8 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 | API `POST/PATCH /api/v1/t/{tenant_id}/{models,assets,pricing,branches}` | Owner/admin CRUD без доверия к tenant ID из body; изменения аудируются |
 | API `/api/v1/r/{slug}/availability` | Агрегированная доступность модели на включительный диапазон дат |
 | API `POST /api/v1/r/{slug}/checkout/quote` | Серверный расчёт тарифа и снимок доступности без резервирования |
+| API `POST /api/v1/r/{slug}/checkout/holds` | Атомарный hold по `Idempotency-Key` только для явно включённой витрины |
+| API `DELETE /api/v1/r/{slug}/checkout/holds/{id}` | Освобождение hold по секретному `X-Hold-Token` |
 | API `POST /api/v1/t/{tenant_id}/assets/{asset_id}/blocks` | Tenant-scoped сервисная блокировка прибора с аудитом |
 | API `/docs`, `/openapi.json` | Реальная спецификация текущего API |
 | Web `/admin` | Адаптивная demo-панель с HttpOnly session proxy; не production-auth |
@@ -151,5 +153,6 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 Каталог и публичная read-model: `architecture/adr-0003-catalog-inventory.md`.
 Demo staff admin и аудит: `architecture/adr-0004-demo-staff-admin.md`.
 Availability и серверный quote: `architecture/adr-0005-availability-quote.md`.
+Атомарные rental holds: `architecture/adr-0006-atomic-rental-holds.md`.
 Реализованный landing: `product/landing-foundation.md`.
 Публикация staging и GitHub CD: `deployment.md`.
