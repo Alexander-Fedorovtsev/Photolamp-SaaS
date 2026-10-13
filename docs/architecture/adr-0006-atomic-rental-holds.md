@@ -18,7 +18,8 @@ Availability и quote читают актуальные данные, но ме�
   пересечение записей в состояниях `held` и `confirmed`. `FOR UPDATE SKIP LOCKED`
   выбирает свободный прибор без общей блокировки инвентаря; constraint остаётся
   последней защитой от двойного назначения.
-- `POST /api/v1/r/{tenant_slug}/checkout/holds` требует `Idempotency-Key`.
+- `POST /api/v1/r/{tenant_slug}/checkout/holds` требует `Idempotency-Key` и
+  capability `X-Checkout-Token` из анонимной checkout-сессии.
   Сервер хранит только SHA-256 ключа. Transaction advisory lock делает
   одновременный повтор того же запроса идемпотентным, а повтор с иным payload
   возвращает 409.
@@ -26,8 +27,8 @@ Availability и quote читают актуальные данные, но ме�
   управления. Asset ID, инвентарный код и серийный номер не раскрываются. При
   повторе токен перевыпускается, в базе хранится только его SHA-256.
 - `DELETE /api/v1/r/{tenant_slug}/checkout/holds/{hold_id}` требует
-  `X-Hold-Token`, атомарно переводит hold в `released` и идемпотентен для уже
-  освобождённой записи с тем же токеном.
+  `X-Checkout-Token` и `X-Hold-Token`, атомарно переводит hold в `released` и
+  идемпотентен для уже освобождённой записи с теми же capabilities.
 - TTL задаётся `HOLD_TTL_SECONDS` в диапазоне 60–1800 секунд, по умолчанию 600.
   Availability сразу игнорирует истёкший hold; следующий create/release в tenant
   переводит такие записи в `expired` перед выделением asset.
@@ -35,13 +36,12 @@ Availability и quote читают актуальные данные, но ме�
   `booking_enabled=true`. В текущих demo seed это значение false, поэтому UI и
   публичный staging не создают резервирования.
 
-## Граница этапа
+## Продолжение
 
-Hold не является заказом и не подтверждает аренду. Нет customer profile, входа
-клиента, SMS, оферты, оплаты или перехода в `confirmed`. Перед включением
-оформления нужны подтверждённая клиентская сессия, rate limiting и атомарное
-создание order из активного hold. До этого landing продолжает показывать только
-quote с выключенной кнопкой оформления.
+Анонимная checkout capability, rate limiting и атомарное создание истекающего
+order из hold реализованы в ADR 0007. Этот order остаётся черновиком: нет
+подтверждённой личности, SMS, оферты, оплаты или перехода в `confirmed`. Landing
+продолжает показывать quote с выключенной кнопкой оформления.
 
 ## Проверки
 

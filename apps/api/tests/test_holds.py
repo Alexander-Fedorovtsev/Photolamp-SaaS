@@ -46,7 +46,23 @@ async def set_booking(owner: AsyncEngine, enabled: bool) -> None:
 async def clear_holds(owner: AsyncEngine) -> None:
     async with owner.begin() as connection:
         await connection.execute(
+            text("UPDATE rental_allocations SET order_id = NULL WHERE tenant_id = :tenant_id"),
+            {"tenant_id": TENANT_UFA},
+        )
+        await connection.execute(
+            text("DELETE FROM order_events WHERE tenant_id = :tenant_id"),
+            {"tenant_id": TENANT_UFA},
+        )
+        await connection.execute(
+            text("DELETE FROM orders WHERE tenant_id = :tenant_id"),
+            {"tenant_id": TENANT_UFA},
+        )
+        await connection.execute(
             text("DELETE FROM rental_allocations WHERE tenant_id = :tenant_id"),
+            {"tenant_id": TENANT_UFA},
+        )
+        await connection.execute(
+            text("DELETE FROM checkout_sessions WHERE tenant_id = :tenant_id"),
             {"tenant_id": TENANT_UFA},
         )
 
@@ -77,6 +93,7 @@ async def test_hold_is_gated_atomic_idempotent_and_releasable() -> None:
     command = hold_request()
     url = "/api/v1/r/demo-ufa/checkout/holds"
     keys = ("synthetic-hold-key-0001", "synthetic-hold-key-0002")
+    unavailable_capability = "synthetic-checkout-capability-that-is-not-valid"
     try:
         await clear_holds(owner)
         await set_booking(owner, False)
@@ -85,15 +102,30 @@ async def test_hold_is_gated_atomic_idempotent_and_releasable() -> None:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 disabled = await client.post(
-                    url, json=command, headers={"Idempotency-Key": keys[0]}
+                    url,
+                    json=command,
+                    headers={
+                        "Idempotency-Key": keys[0],
+                        "X-Checkout-Token": unavailable_capability,
+                    },
                 )
                 assert disabled.status_code == 409
                 assert disabled.json() == {"detail": "Booking is not enabled"}
 
                 await set_booking(owner, True)
+                session = await client.post("/api/v1/r/demo-ufa/checkout/sessions")
+                assert session.status_code == 201
+                checkout_token = session.json()["checkout_token"]
                 responses = await asyncio.gather(
                     *(
-                        client.post(url, json=command, headers={"Idempotency-Key": key})
+                        client.post(
+                            url,
+                            json=command,
+                            headers={
+                                "Idempotency-Key": key,
+                                "X-Checkout-Token": checkout_token,
+                            },
+                        )
                         for key in keys
                     )
                 )
@@ -113,7 +145,12 @@ async def test_hold_is_gated_atomic_idempotent_and_releasable() -> None:
                 assert unavailable.status_code == 409
 
                 replay = await client.post(
-                    url, json=command, headers={"Idempotency-Key": winner_key}
+                    url,
+                    json=command,
+                    headers={
+                        "Idempotency-Key": winner_key,
+                        "X-Checkout-Token": checkout_token,
+                    },
                 )
                 assert replay.status_code == 201
                 replayed = replay.json()
@@ -129,23 +166,38 @@ async def test_hold_is_gated_atomic_idempotent_and_releasable() -> None:
                             date.fromisoformat(command["end_date"]) + timedelta(days=1)
                         ).isoformat(),
                     },
-                    headers={"Idempotency-Key": winner_key},
+                    headers={
+                        "Idempotency-Key": winner_key,
+                        "X-Checkout-Token": checkout_token,
+                    },
                 )
                 assert changed.status_code == 409
                 assert "another request" in changed.json()["detail"]
 
                 release_url = f"{url}/{body['hold_id']}"
                 old_token = await client.delete(
-                    release_url, headers={"X-Hold-Token": body["management_token"]}
+                    release_url,
+                    headers={
+                        "X-Hold-Token": body["management_token"],
+                        "X-Checkout-Token": checkout_token,
+                    },
                 )
                 assert old_token.status_code == 404
                 released = await client.delete(
-                    release_url, headers={"X-Hold-Token": replayed["management_token"]}
+                    release_url,
+                    headers={
+                        "X-Hold-Token": replayed["management_token"],
+                        "X-Checkout-Token": checkout_token,
+                    },
                 )
                 assert released.status_code == 200
                 assert released.json() == {"hold_id": body["hold_id"], "released": True}
                 repeated_release = await client.delete(
-                    release_url, headers={"X-Hold-Token": replayed["management_token"]}
+                    release_url,
+                    headers={
+                        "X-Hold-Token": replayed["management_token"],
+                        "X-Checkout-Token": checkout_token,
+                    },
                 )
                 assert repeated_release.status_code == 200
 
@@ -173,10 +225,16 @@ async def test_expired_holds_are_reclaimed_and_rls_is_enforced() -> None:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
+                session = await client.post("/api/v1/r/demo-ufa/checkout/sessions")
+                assert session.status_code == 201
+                checkout_token = session.json()["checkout_token"]
                 first = await client.post(
                     url,
                     json=command,
-                    headers={"Idempotency-Key": "synthetic-expiry-key-001"},
+                    headers={
+                        "Idempotency-Key": "synthetic-expiry-key-001",
+                        "X-Checkout-Token": checkout_token,
+                    },
                 )
                 assert first.status_code == 201
                 async with owner.begin() as connection:
@@ -193,7 +251,10 @@ async def test_expired_holds_are_reclaimed_and_rls_is_enforced() -> None:
                         client.post(
                             url,
                             json=command,
-                            headers={"Idempotency-Key": "synthetic-expiry-key-002"},
+                            headers={
+                                "Idempotency-Key": "synthetic-expiry-key-002",
+                                "X-Checkout-Token": checkout_token,
+                            },
                         )
                         for _ in range(2)
                     )

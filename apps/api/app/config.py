@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     enable_demo_previews: bool = False
     dependency_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
     hold_ttl_seconds: int = Field(default=600, ge=60, le=1800)
+    checkout_session_ttl_seconds: int = Field(default=1800, ge=300, le=3600)
+    checkout_rate_limit_window_seconds: int = Field(default=60, ge=10, le=300)
+    checkout_session_rate_limit: int = Field(default=10, ge=1, le=100)
+    checkout_mutation_rate_limit: int = Field(default=10, ge=1, le=100)
 
     @model_validator(mode="after")
     def validate_environment(self) -> "Settings":

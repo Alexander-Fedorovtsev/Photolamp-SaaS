@@ -163,6 +163,13 @@ def test_openapi_matches_catalog_contract(client: TestClient) -> None:
     assert "/api/v1/r/{tenant_slug}/catalog" in schema["paths"]
     assert "/api/v1/r/{tenant_slug}/availability" in schema["paths"]
     assert "/api/v1/r/{tenant_slug}/checkout/quote" in schema["paths"]
+    assert "/api/v1/r/{tenant_slug}/checkout/sessions" in schema["paths"]
+    assert "/api/v1/r/{tenant_slug}/checkout/holds" in schema["paths"]
+    assert "/api/v1/r/{tenant_slug}/checkout/orders" in schema["paths"]
+    draft = schema["components"]["schemas"]["DraftOrder"]["properties"]
+    assert draft["identity_verified"]["const"] is False
+    assert draft["confirmation_available"]["const"] is False
+    assert draft["payment_status"]["const"] == "not_started"
     assert (
         schema["components"]["schemas"]["PublicCatalog"]["properties"]["availability_confirmed"][
             "const"

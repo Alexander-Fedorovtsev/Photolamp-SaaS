@@ -61,14 +61,15 @@ python3 tests/e2e/smoke.py
 Панель синтетического арендодателя: <http://localhost:3000/admin>.
 API/OpenAPI: <http://localhost:8000/docs>.
 
-Только вымышленные публичные бренды; оформление заказа, SMS, платежи и телефон
+Только вымышленные публичные бренды; подтверждение заказа, SMS, платежи и телефон
 оператора недоступны. Реализованы users/tenants/memberships, opaque session lookup,
 отдельная least-privilege роль PostgreSQL и FORCE RLS. Environment-gated demo-вход
 выдаёт короткую opaque session только синтетическому staff user; реальный SMS/OTP
 вход ещё не реализован. В адаптивной `/admin` можно управлять tenant-scoped
 филиалами, моделями, физическими приборами и тарифами; изменения аудируются и
-отражаются на demo-витрине. Проект не обрабатывает реальные персональные данные,
-не подтверждает доступность и не принимает заказы. Главная содержит полноценный
+отражаются на demo-витрине. API умеет создать анонимную checkout capability,
+атомарный hold и истекающий draft order без персональных данных; demo-витрины
+оставляют booking выключенным и не принимают заказы. Главная содержит полноценный
 адаптивный landing с лёгкой SVG-анимацией.
 
 - [Локальный запуск, проверки и облачная сборка](docs/development.md)
@@ -76,6 +77,7 @@ API/OpenAPI: <http://localhost:8000/docs>.
 - [Реализованная tenant identity и RLS-модель](docs/architecture/adr-0002-tenant-identity-rls.md)
 - [Tenant-каталог, инвентарь и публичная read-model](docs/architecture/adr-0003-catalog-inventory.md)
 - [Demo staff session, catalog CRUD и аудит](docs/architecture/adr-0004-demo-staff-admin.md)
+- [Анонимный checkout и истекающие draft orders](docs/architecture/adr-0007-anonymous-checkout-drafts.md)
 - [Реализованный landing и витрина](docs/product/landing-foundation.md)
 - [Демо photolamp-test.anliwei.pro и настройка Continuous Deployment](docs/deployment.md)
 
