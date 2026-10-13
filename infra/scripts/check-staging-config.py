@@ -5,10 +5,14 @@ import re
 import sys
 
 
+class StagingConfigError(ValueError):
+    """A deliberately credential-free explanation for the operator."""
+
+
 def validate(model: dict) -> None:
     def require(condition: bool, message: str) -> None:
         if not condition:
-            raise ValueError(message)
+            raise StagingConfigError(message)
 
     require(model.get("name") == "photolamp-test", "Unexpected staging project name")
     services = model["services"]
@@ -93,6 +97,8 @@ def validate(model: dict) -> None:
 if __name__ == "__main__":
     try:
         validate(json.load(sys.stdin))
+    except StagingConfigError as error:
+        raise SystemExit(f"Invalid staging Compose configuration: {error}") from None
     except (KeyError, ValueError, TypeError):
         # Avoid traceback, model repr or values containing credentials.
         raise SystemExit(

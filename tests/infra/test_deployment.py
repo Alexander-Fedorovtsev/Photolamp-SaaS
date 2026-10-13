@@ -159,6 +159,25 @@ class StagingTopology(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("do-not-disclose-this-value", result.stdout + result.stderr)
+        self.assertIn("64-character random hex database password", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_validator_explains_corrupted_auth_without_disclosing_it(self):
+        changed = copy.deepcopy(self.model)
+        changed["services"]["web"]["labels"][
+            "traefik.http.middlewares.photolamp-test-auth.basicauth.users"
+        ] = "private-corrupted-auth-value"
+        result = subprocess.run(
+            ["python3", str(ROOT / "infra/scripts/check-staging-config.py")],
+            input=json.dumps(changed),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Basic Auth must contain one intact bcrypt hash", result.stderr)
+        self.assertNotIn("private-corrupted-auth-value", result.stdout + result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
 
 
 if __name__ == "__main__":

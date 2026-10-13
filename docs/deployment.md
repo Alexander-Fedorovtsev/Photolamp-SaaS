@@ -182,6 +182,13 @@ curl --user photolamp https://photolamp-test.anliwei.pro/api/version
 
 ## Диагностика и отключение CD
 
+Если deploy остановился на `Invalid staging Compose configuration`, следующая часть
+сообщения теперь указывает конкретное нарушенное условие, без вывода значений `.env`.
+Например, `64-character random hex database password` требует 64 hex-символа,
+а `Basic Auth must contain one intact bcrypt hash` — полную строку helper с
+одинарными кавычками и неизменёнными `$`. Исправьте только указанное поле в серверном
+`.env` и повторите deploy; файл с паролями в чат или логи копировать не требуется.
+
 Как deploy-пользователь в `/opt/photolamp-test`:
 
 ```bash
