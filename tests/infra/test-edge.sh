@@ -75,7 +75,19 @@ version = json.load(sys.stdin)
 assert version["git_sha"] == os.environ["PHOTOLAMP_DEPLOY_SHA"]
 assert version["api_git_sha"] == os.environ["PHOTOLAMP_DEPLOY_SHA"]
 '
-for path in / /r/demo-ufa /r/demo-kazan; do curl "${curl_options[@]}" "$test_url$path" >/dev/null; done
+for path in / /admin /r/demo-ufa /r/demo-kazan; do curl "${curl_options[@]}" "$test_url$path" >/dev/null; done
+cookie_jar="$test_dir/admin-cookies"
+curl "${curl_options[@]}" -X POST -c "$cookie_jar" "$test_url/api/admin/session" | python3 -c '
+import json, sys
+session = json.load(sys.stdin)
+assert session == {"authenticated": True, "demo_only": True}
+'
+curl "${curl_options[@]}" -b "$cookie_jar" "$test_url/api/admin/session" | python3 -c '
+import json, sys
+memberships = json.load(sys.stdin)
+assert {item["slug"] for item in memberships} == {"demo-ufa", "demo-kazan"}
+'
+curl "${curl_options[@]}" -X DELETE -b "$cookie_jar" "$test_url/api/admin/session" >/dev/null
 [[ "$(curl --silent --show-error --max-time 10 --cacert "$STAGING_TEST_CERT_DIR/cert.pem" \
   -H 'Host: photolamp-test.anliwei.pro' --user 'demo-test:wrong' -o /dev/null -w '%{http_code}' "$test_url/")" == 401 ]]
 container_id="$("${compose[@]}" ps -q web)"
@@ -84,4 +96,4 @@ docker inspect --format '{{ index .Config.Labels "traefik.http.middlewares.photo
 import os, sys
 assert sys.stdin.read().strip() == os.environ["TRAEFIK_BASIC_AUTH_USERS"]
 '
-echo 'Staging edge passed: verified TLS, Basic Auth 401/200, catalogs, intact bcrypt and exact web/API SHA'
+echo 'Staging edge passed: verified TLS, Basic Auth 401/200, catalogs, admin session, intact bcrypt and exact web/API SHA'

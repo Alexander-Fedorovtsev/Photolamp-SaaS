@@ -2,6 +2,7 @@
 
 import hashlib
 import re
+from collections.abc import AsyncIterator
 from typing import Annotated, cast
 from uuid import UUID
 
@@ -10,7 +11,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 
-from app.database import Database, TenantAccessDenied
+from app.database import Database, TenantAccessDenied, TenantTransaction
 
 bearer = HTTPBearer(auto_error=False)
 TOKEN_PATTERN = re.compile(r"^pl_[A-Za-z0-9_-]{32,128}$")
@@ -77,5 +78,17 @@ async def get_tenant_context(database: Database, digest: bytes, tenant_id: UUID)
                 )
             ).one()
             return TenantContext(**dict(row._mapping), role=transaction.role)
+    except TenantAccessDenied:
+        raise HTTPException(status_code=404, detail="Tenant not found") from None
+
+
+async def authorized_tenant_transaction(
+    tenant_id: UUID,
+    digest: Annotated[bytes, Depends(session_digest)],
+    db: Annotated[Database, Depends(database)],
+) -> AsyncIterator[TenantTransaction]:
+    try:
+        async with db.tenant_transaction(digest, tenant_id) as transaction:
+            yield transaction
     except TenantAccessDenied:
         raise HTTPException(status_code=404, detail="Tenant not found") from None

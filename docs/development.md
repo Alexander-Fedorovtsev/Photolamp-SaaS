@@ -133,7 +133,11 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 | API `/api/v1/r/{slug}/preview` | Deprecated summary того же DB-backed каталога |
 | API `/api/v1/me/tenants` | Активные memberships непрозрачной сессии; 401 без неё |
 | API `/api/v1/t/{tenant_id}/context` | Проверенный tenant context под RLS; 404 для чужого tenant |
+| API `POST /api/v1/auth/demo-session` | Короткая синтетическая staff session только при demo-режиме; production возвращает 404 |
+| API `/api/v1/t/{tenant_id}/catalog-admin` | Приватная staff read-model после session + membership + RLS проверки |
+| API `POST/PATCH /api/v1/t/{tenant_id}/{models,assets,pricing,branches}` | Owner/admin CRUD без доверия к tenant ID из body; изменения аудируются |
 | API `/docs`, `/openapi.json` | Реальная спецификация текущего API |
+| Web `/admin` | Адаптивная demo-панель с HttpOnly session proxy; не production-auth |
 | Web `/api/health/live` | 200 при живом web |
 | Web `/api/health/ready` | 200 при готовом API; иначе 503 |
 | API `/api/v1/version` | SHA текущего API-образа, no-store |
@@ -142,5 +146,6 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 План и границы SaaS: `architecture/adr-0001-foundation.md`.
 Реализованная tenant/RLS-модель: `architecture/adr-0002-tenant-identity-rls.md`.
 Каталог и публичная read-model: `architecture/adr-0003-catalog-inventory.md`.
+Demo staff admin и аудит: `architecture/adr-0004-demo-staff-admin.md`.
 Реализованный landing: `product/landing-foundation.md`.
 Публикация staging и GitHub CD: `deployment.md`.

@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import text
@@ -52,6 +53,29 @@ class Database:
                 {"token_hash": token_hash},
             )
             return None if value is None else UUID(str(value))
+
+    async def issue_demo_session(
+        self, session_id: UUID, token_hash: bytes, expires_at: datetime
+    ) -> UUID:
+        async with self.transaction() as session:
+            value = await session.scalar(
+                text("SELECT issue_demo_staff_session(:session_id, :token_hash, :expires_at)"),
+                {
+                    "session_id": session_id,
+                    "token_hash": token_hash,
+                    "expires_at": expires_at,
+                },
+            )
+            return UUID(str(value))
+
+    async def revoke_session(self, token_hash: bytes) -> bool:
+        async with self.transaction() as session:
+            return bool(
+                await session.scalar(
+                    text("SELECT COALESCE(revoke_session(:token_hash), false)"),
+                    {"token_hash": token_hash},
+                )
+            )
 
     @asynccontextmanager
     async def public_tenant_transaction(

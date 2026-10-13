@@ -1,0 +1,379 @@
+"""Tenant-scoped staff catalog commands and read model."""
+
+import json
+from typing import Annotated, Literal
+from uuid import UUID, uuid4
+
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import text
+
+from app.database import TenantTransaction
+
+StaffRole = Literal["owner", "admin", "operator", "courier"]
+PublicationState = Literal["draft", "published", "archived"]
+AssetState = Literal["available", "rented", "maintenance", "inspection", "retired"]
+PricingState = Literal["draft", "active", "retired"]
+IncludedItems = Annotated[
+    list[Annotated[str, Field(min_length=1, max_length=100)]],
+    Field(min_length=1, max_length=12),
+]
+
+
+class Branch(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    id: UUID
+    name: str
+    city: str
+    timezone: str
+    pickup_enabled: bool
+    delivery_enabled: bool
+    state: Literal["active", "inactive"]
+
+
+class EquipmentModel(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    id: UUID
+    name: str
+    manufacturer: str | None
+    description: str
+    included_items: list[str]
+    illustration: Literal["floor", "compact", "mobile"]
+    publication_state: PublicationState
+
+
+class Asset(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    id: UUID
+    branch_id: UUID
+    branch_name: str
+    equipment_model_id: UUID
+    model_name: str
+    asset_code: str
+    serial_no: str | None
+    state: AssetState
+
+
+class PricingRule(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    id: UUID
+    equipment_model_id: UUID
+    model_name: str
+    amount_minor_per_day: int
+    deposit_minor: int
+    currency: Literal["RUB"]
+    minimum_days: int
+    maximum_days: int
+    state: PricingState
+    is_demo: bool
+
+
+class CatalogAdminSnapshot(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    tenant_id: UUID
+    role: StaffRole
+    branches: list[Branch]
+    models: list[EquipmentModel]
+    assets: list[Asset]
+    pricing: list[PricingRule]
+
+
+class BranchCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: Annotated[str, Field(min_length=1, max_length=100)]
+    city: Annotated[str, Field(min_length=1, max_length=100)]
+    timezone: Annotated[str, Field(min_length=1, max_length=100)]
+    pickup_enabled: bool = True
+    delivery_enabled: bool = True
+
+
+class BranchPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: Annotated[str, Field(min_length=1, max_length=100)] | None = None
+    pickup_enabled: bool | None = None
+    delivery_enabled: bool | None = None
+    state: Literal["active", "inactive"] | None = None
+
+
+class ModelCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: Annotated[str, Field(min_length=1, max_length=120)]
+    manufacturer: Annotated[str, Field(min_length=1, max_length=120)] | None = None
+    description: Annotated[str, Field(min_length=1, max_length=500)]
+    included_items: IncludedItems
+    illustration: Literal["floor", "compact", "mobile"] = "floor"
+    publication_state: PublicationState = "draft"
+
+
+class ModelPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: Annotated[str, Field(min_length=1, max_length=120)] | None = None
+    manufacturer: Annotated[str, Field(min_length=1, max_length=120)] | None = None
+    description: Annotated[str, Field(min_length=1, max_length=500)] | None = None
+    included_items: IncludedItems | None = None
+    illustration: Literal["floor", "compact", "mobile"] | None = None
+    publication_state: PublicationState | None = None
+
+
+class AssetCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    branch_id: UUID
+    equipment_model_id: UUID
+    asset_code: Annotated[str, Field(pattern=r"^[A-Z0-9][A-Z0-9-]{1,31}$")]
+    serial_no: Annotated[str, Field(min_length=1, max_length=120)] | None = None
+    state: AssetState = "available"
+
+
+class AssetPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    branch_id: UUID | None = None
+    equipment_model_id: UUID | None = None
+    asset_code: Annotated[str, Field(pattern=r"^[A-Z0-9][A-Z0-9-]{1,31}$")] | None = None
+    state: AssetState | None = None
+
+
+class PricingCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    equipment_model_id: UUID
+    amount_minor_per_day: Annotated[int, Field(gt=0, le=10_000_000)]
+    deposit_minor: Annotated[int, Field(ge=0, le=100_000_000)] = 0
+    minimum_days: Annotated[int, Field(ge=1, le=365)] = 1
+    maximum_days: Annotated[int, Field(ge=1, le=365)] = 30
+    state: PricingState = "draft"
+
+
+class PricingPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    amount_minor_per_day: Annotated[int, Field(gt=0, le=10_000_000)] | None = None
+    deposit_minor: Annotated[int, Field(ge=0, le=100_000_000)] | None = None
+    minimum_days: Annotated[int, Field(ge=1, le=365)] | None = None
+    maximum_days: Annotated[int, Field(ge=1, le=365)] | None = None
+    state: PricingState | None = None
+
+
+def require_catalog_editor(transaction: TenantTransaction) -> None:
+    if transaction.role not in {"owner", "admin"}:
+        raise CatalogPermissionDenied
+
+
+async def load_admin_catalog(transaction: TenantTransaction) -> CatalogAdminSnapshot:
+    session = transaction.session
+    branches = await session.execute(
+        text(
+            "SELECT id, name, city, timezone, pickup_enabled, delivery_enabled, state "
+            "FROM branches ORDER BY name"
+        )
+    )
+    models = await session.execute(
+        text(
+            "SELECT id, name, manufacturer, description, included_items, illustration, "
+            "publication_state FROM equipment_models ORDER BY name"
+        )
+    )
+    assets = await session.execute(
+        text(
+            "SELECT a.id, a.branch_id, b.name AS branch_name, a.equipment_model_id, "
+            "m.name AS model_name, a.asset_code, a.serial_no, a.state "
+            "FROM assets a JOIN branches b ON b.id = a.branch_id "
+            "JOIN equipment_models m ON m.id = a.equipment_model_id "
+            "ORDER BY a.asset_code"
+        )
+    )
+    pricing = await session.execute(
+        text(
+            "SELECT p.id, p.equipment_model_id, m.name AS model_name, "
+            "p.amount_minor_per_day, p.deposit_minor, p.currency, p.minimum_days, "
+            "p.maximum_days, p.state, p.is_demo FROM pricing_rules p "
+            "JOIN equipment_models m ON m.id = p.equipment_model_id "
+            "ORDER BY m.name, p.created_at"
+        )
+    )
+    return CatalogAdminSnapshot(
+        tenant_id=transaction.tenant_id,
+        role=transaction.role,
+        branches=[Branch.model_validate(dict(row._mapping)) for row in branches],
+        models=[EquipmentModel.model_validate(dict(row._mapping)) for row in models],
+        assets=[Asset.model_validate(dict(row._mapping)) for row in assets],
+        pricing=[PricingRule.model_validate(dict(row._mapping)) for row in pricing],
+    )
+
+
+async def _audit(
+    transaction: TenantTransaction,
+    action: str,
+    entity_type: str,
+    entity_id: UUID,
+    changes: dict[str, object],
+) -> None:
+    await transaction.session.execute(
+        text(
+            "INSERT INTO audit_events "
+            "(id, tenant_id, actor_user_id, action, entity_type, entity_id, changes) "
+            "VALUES (:id, :tenant_id, :actor_user_id, :action, :entity_type, "
+            ":entity_id, CAST(:changes AS jsonb))"
+        ),
+        {
+            "id": uuid4(),
+            "tenant_id": transaction.tenant_id,
+            "actor_user_id": transaction.user_id,
+            "action": action,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "changes": json.dumps(changes, default=str, ensure_ascii=False),
+        },
+    )
+
+
+async def create_branch(transaction: TenantTransaction, command: BranchCreate) -> UUID:
+    require_catalog_editor(transaction)
+    entity_id = uuid4()
+    values = command.model_dump()
+    await transaction.session.execute(
+        text(
+            "INSERT INTO branches (id, tenant_id, name, city, timezone, "
+            "pickup_enabled, delivery_enabled) VALUES (:id, :tenant_id, :name, :city, "
+            ":timezone, :pickup_enabled, :delivery_enabled)"
+        ),
+        {"id": entity_id, "tenant_id": transaction.tenant_id, **values},
+    )
+    await _audit(transaction, "branch.created", "branch", entity_id, values)
+    return entity_id
+
+
+async def create_model(transaction: TenantTransaction, command: ModelCreate) -> UUID:
+    require_catalog_editor(transaction)
+    entity_id = uuid4()
+    values = command.model_dump()
+    await transaction.session.execute(
+        text(
+            "INSERT INTO equipment_models (id, tenant_id, name, category, manufacturer, "
+            "description, included_items, illustration, publication_state) VALUES "
+            "(:id, :tenant_id, :name, 'phototherapy_lamp', :manufacturer, :description, "
+            ":included_items, :illustration, :publication_state)"
+        ),
+        {"id": entity_id, "tenant_id": transaction.tenant_id, **values},
+    )
+    await _audit(transaction, "model.created", "equipment_model", entity_id, values)
+    return entity_id
+
+
+async def create_asset(transaction: TenantTransaction, command: AssetCreate) -> UUID:
+    require_catalog_editor(transaction)
+    entity_id = uuid4()
+    values = command.model_dump()
+    await transaction.session.execute(
+        text(
+            "INSERT INTO assets (id, tenant_id, branch_id, equipment_model_id, "
+            "asset_code, serial_no, state) VALUES (:id, :tenant_id, :branch_id, "
+            ":equipment_model_id, :asset_code, :serial_no, :state)"
+        ),
+        {"id": entity_id, "tenant_id": transaction.tenant_id, **values},
+    )
+    await _audit(transaction, "asset.created", "asset", entity_id, values)
+    return entity_id
+
+
+async def create_pricing(transaction: TenantTransaction, command: PricingCreate) -> UUID:
+    require_catalog_editor(transaction)
+    if command.maximum_days < command.minimum_days:
+        raise InvalidCatalogCommand("maximum_days must be greater than or equal to minimum_days")
+    entity_id = uuid4()
+    values = command.model_dump()
+    await transaction.session.execute(
+        text(
+            "INSERT INTO pricing_rules (id, tenant_id, equipment_model_id, "
+            "amount_minor_per_day, deposit_minor, minimum_days, maximum_days, state, "
+            "is_demo) VALUES (:id, :tenant_id, :equipment_model_id, "
+            ":amount_minor_per_day, :deposit_minor, :minimum_days, :maximum_days, "
+            ":state, true)"
+        ),
+        {"id": entity_id, "tenant_id": transaction.tenant_id, **values},
+    )
+    await _audit(transaction, "pricing.created", "pricing_rule", entity_id, values)
+    return entity_id
+
+
+async def _patch_entity(
+    transaction: TenantTransaction,
+    *,
+    table: str,
+    entity_type: str,
+    entity_id: UUID,
+    values: dict[str, object],
+) -> None:
+    require_catalog_editor(transaction)
+    changes = {key: value for key, value in values.items() if value is not None}
+    if not changes:
+        raise InvalidCatalogCommand("At least one field must be supplied")
+    assignments = ", ".join(f"{field} = :{field}" for field in changes)
+    result = await transaction.session.execute(
+        # Table and field names only come from endpoint-owned allowlists.
+        text(
+            f"UPDATE {table} SET {assignments}, updated_at = now() "  # noqa: S608
+            "WHERE id = :entity_id RETURNING id"
+        ),
+        {"entity_id": entity_id, **changes},
+    )
+    if result.scalar_one_or_none() is None:
+        raise CatalogEntityNotFound
+    await _audit(transaction, f"{entity_type}.updated", entity_type, entity_id, changes)
+
+
+async def patch_branch(
+    transaction: TenantTransaction, entity_id: UUID, command: BranchPatch
+) -> None:
+    await _patch_entity(
+        transaction,
+        table="branches",
+        entity_type="branch",
+        entity_id=entity_id,
+        values=command.model_dump(exclude_unset=True),
+    )
+
+
+async def patch_model(transaction: TenantTransaction, entity_id: UUID, command: ModelPatch) -> None:
+    await _patch_entity(
+        transaction,
+        table="equipment_models",
+        entity_type="equipment_model",
+        entity_id=entity_id,
+        values=command.model_dump(exclude_unset=True),
+    )
+
+
+async def patch_asset(transaction: TenantTransaction, entity_id: UUID, command: AssetPatch) -> None:
+    await _patch_entity(
+        transaction,
+        table="assets",
+        entity_type="asset",
+        entity_id=entity_id,
+        values=command.model_dump(exclude_unset=True),
+    )
+
+
+async def patch_pricing(
+    transaction: TenantTransaction, entity_id: UUID, command: PricingPatch
+) -> None:
+    values = command.model_dump(exclude_unset=True)
+    minimum = values.get("minimum_days")
+    maximum = values.get("maximum_days")
+    if minimum is not None and maximum is not None and maximum < minimum:
+        raise InvalidCatalogCommand("maximum_days must be greater than or equal to minimum_days")
+    await _patch_entity(
+        transaction,
+        table="pricing_rules",
+        entity_type="pricing_rule",
+        entity_id=entity_id,
+        values=values,
+    )
+
+
+class CatalogPermissionDenied(Exception):
+    pass
+
+
+class CatalogEntityNotFound(Exception):
+    pass
+
+
+class InvalidCatalogCommand(Exception):
+    pass

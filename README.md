@@ -44,7 +44,7 @@ Multi-tenant SaaS-платформа для аренды фотоламп и д�
 - **Queue / jobs:** Redis + worker
 - **Infra:** Docker Compose (MVP), Traefik/Caddy or Nginx, object storage compatible with S3
 
-## Рабочая версия: landing + tenant catalog foundation
+## Рабочая версия: landing + tenant catalog admin
 
 Создана воспроизводимая основа: Next.js 16 + strict TypeScript, FastAPI/Python 3.12,
 SQLAlchemy, PostgreSQL 16, Redis 7, Alembic, Docker Compose, lint/format/typecheck,
@@ -58,20 +58,24 @@ python3 tests/e2e/smoke.py
 
 Главная: <http://localhost:3000>. Демонстрационные витрины:
 <http://localhost:3000/r/demo-ufa> и <http://localhost:3000/r/demo-kazan>.
+Панель синтетического арендодателя: <http://localhost:3000/admin>.
 API/OpenAPI: <http://localhost:8000/docs>.
 
 Только вымышленные публичные бренды; оформление заказа, SMS, платежи и телефон
 оператора недоступны. Реализованы users/tenants/memberships, opaque session lookup,
-отдельная least-privilege роль PostgreSQL и FORCE RLS. Выпуск сессий и SMS ещё не
-реализованы. Добавлены tenant-scoped филиалы, модели, физические приборы и тарифы;
-демо-витрины читают синтетический каталог из PostgreSQL. Они не обрабатывают
-персональные данные, не подтверждают доступность и не принимают заказы. Главная
-содержит полноценный адаптивный landing с лёгкой SVG-анимацией.
+отдельная least-privilege роль PostgreSQL и FORCE RLS. Environment-gated demo-вход
+выдаёт короткую opaque session только синтетическому staff user; реальный SMS/OTP
+вход ещё не реализован. В адаптивной `/admin` можно управлять tenant-scoped
+филиалами, моделями, физическими приборами и тарифами; изменения аудируются и
+отражаются на demo-витрине. Проект не обрабатывает реальные персональные данные,
+не подтверждает доступность и не принимает заказы. Главная содержит полноценный
+адаптивный landing с лёгкой SVG-анимацией.
 
 - [Локальный запуск, проверки и облачная сборка](docs/development.md)
 - [Архитектурные решения и контракт tenant isolation/RLS](docs/architecture/adr-0001-foundation.md)
 - [Реализованная tenant identity и RLS-модель](docs/architecture/adr-0002-tenant-identity-rls.md)
 - [Tenant-каталог, инвентарь и публичная read-model](docs/architecture/adr-0003-catalog-inventory.md)
+- [Demo staff session, catalog CRUD и аудит](docs/architecture/adr-0004-demo-staff-admin.md)
 - [Реализованный landing и витрина](docs/product/landing-foundation.md)
 - [Демо photolamp-test.anliwei.pro и настройка Continuous Deployment](docs/deployment.md)
 
