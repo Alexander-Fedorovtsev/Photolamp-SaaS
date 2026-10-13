@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 from sqlalchemy.exc import IntegrityError
 
+from app.admin_order_routes import router as admin_order_router
 from app.admin_routes import router as admin_router
 from app.auth import DemoSession, SessionRevoked, issue_demo_session, revoke_session
 from app.availability import Availability, Quote, QuoteRequest, calculate_quote, check_availability
@@ -84,11 +85,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "Synthetic demo staff access is environment-gated. Short-lived inventory holds are "
             "available only for explicitly enabled storefronts. Anonymous draft orders expire "
             "with their hold. Customer OTP uses an explicit provider boundary; staging has no "
-            "SMS provider, order confirmation and payments. Authenticated customers can read "
-            "only their own privacy-minimized order history."
+            "SMS provider, public confirmation and payments. Authenticated customers can read "
+            "only their own privacy-minimized order history. Authorized staff order commands "
+            "use immutable snapshots and auditable, idempotent state transitions."
         ),
     )
     application.include_router(admin_router)
+    application.include_router(admin_order_router)
 
     @application.exception_handler(IntegrityError)
     async def integrity_conflict(_request: object, _error: IntegrityError) -> JSONResponse:

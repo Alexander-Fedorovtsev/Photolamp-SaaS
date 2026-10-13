@@ -174,6 +174,10 @@ def test_openapi_matches_catalog_contract(client: TestClient) -> None:
     assert "/api/v1/r/{tenant_slug}/checkout/identity/otp/verify" in schema["paths"]
     assert "/api/v1/r/{tenant_slug}/me/orders" in schema["paths"]
     assert "/api/v1/r/{tenant_slug}/me/orders/{order_id}" in schema["paths"]
+    assert "/api/v1/t/{tenant_id}/orders" in schema["paths"]
+    assert "/api/v1/t/{tenant_id}/orders/{order_id}" in schema["paths"]
+    assert "/api/v1/t/{tenant_id}/orders/{order_id}/confirm" in schema["paths"]
+    assert "/api/v1/t/{tenant_id}/orders/{order_id}/cancel" in schema["paths"]
     customer_order = schema["components"]["schemas"]["CustomerOrder"]["properties"]
     assert customer_order["identity_verified"]["const"] is True
     assert customer_order["confirmation_available"]["const"] is False
