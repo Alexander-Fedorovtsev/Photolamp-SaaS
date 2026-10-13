@@ -24,6 +24,16 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ${STAGING_TEST_CERT_DIR:?Required test certificate directory}:/etc/traefik/test:ro
     networks: [traefik]
+  test-other-api:
+    # Simulates an unrelated stack publishing the generic `api` DNS alias.
+    image: node:22-bookworm-slim
+    command:
+      - node
+      - -e
+      - "require('node:http').createServer((req,res)=>{res.writeHead(404);res.end('unrelated-api')}).listen(8000,'0.0.0.0')"
+    networks:
+      traefik:
+        aliases: [api]
 
 networks:
   traefik:

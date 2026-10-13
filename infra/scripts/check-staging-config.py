@@ -46,6 +46,13 @@ def validate(model: dict) -> None:
         )
     labels = services["web"]["labels"]
     require(
+        services["web"]["environment"]["API_INTERNAL_URL"]
+        == "http://photolamp-test-backend:8000"
+        and "photolamp-test-backend"
+        in services["api"]["networks"]["internal"].get("aliases", []),
+        "Frontend must use the private Photolamp-specific API alias",
+    )
+    require(
         labels["traefik.http.routers.photolamp-test.rule"]
         == "Host(`photolamp-test.anliwei.pro`)",
         "Unexpected hostname",

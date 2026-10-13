@@ -43,6 +43,16 @@ docker network create "$STAGING_TEST_EDGE_NETWORK" >/dev/null
 export STAGING_TEST_NO_PROXY
 STAGING_TEST_NO_PROXY="${NO_PROXY:-localhost,127.0.0.1},$(docker network inspect "$STAGING_TEST_EDGE_NETWORK" --format '{{(index .IPAM.Config 0).Subnet}}')"
 "${compose[@]}" up --build --wait --wait-timeout 180
+# Verify that the shared network really contains an unrelated API and that
+# frontend readiness still reaches only Photolamp through its private alias.
+"${compose[@]}" exec -T web node -e '
+(async () => {
+  const response = await fetch("http://test-other-api:8000/api/v1/health/ready");
+  if (response.status !== 404 || await response.text() !== "unrelated-api") process.exit(1);
+  const ready = await fetch(process.env.API_INTERNAL_URL + "/api/v1/health/ready");
+  if (!ready.ok || (await ready.json()).status !== "ready") process.exit(1);
+})().catch(() => process.exit(1));
+'
 curl_options=(--silent --show-error --max-time 10 --cacert "$STAGING_TEST_CERT_DIR/cert.pem"
   -H 'Host: photolamp-test.anliwei.pro')
 readonly test_url="https://localhost:${STAGING_TEST_PORT:-3443}"

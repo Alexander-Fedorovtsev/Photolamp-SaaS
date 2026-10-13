@@ -131,6 +131,18 @@ class StagingTopology(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.validator.validate(changed)
 
+    def test_rejects_api_names_that_can_collide_on_shared_edge(self):
+        changed = copy.deepcopy(self.model)
+        changed["services"]["web"]["environment"]["API_INTERNAL_URL"] = (
+            "http://api:8000"
+        )
+        with self.assertRaisesRegex(ValueError, "Photolamp-specific API alias"):
+            self.validator.validate(changed)
+        changed = copy.deepcopy(self.model)
+        changed["services"]["api"]["networks"]["internal"]["aliases"] = []
+        with self.assertRaisesRegex(ValueError, "Photolamp-specific API alias"):
+            self.validator.validate(changed)
+
     def test_rejects_default_credentials_or_unprotected_routes(self):
         changed = copy.deepcopy(self.model)
         changed["services"]["postgres"]["environment"]["POSTGRES_PASSWORD"] = (
