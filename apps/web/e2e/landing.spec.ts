@@ -1,15 +1,23 @@
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
-test("planning uses database demo pricing but cannot submit an order", async ({ page }) => {
+test("planning uses server availability and pricing but cannot submit an order", async ({
+  page,
+}) => {
   await page.goto("/r/demo-kazan");
-  await page.getByLabel("Длительность аренды").selectOption("14");
+  const start = new Date();
+  start.setUTCDate(start.getUTCDate() + 10);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 13);
+  await page.getByLabel("Первый день").fill(start.toISOString().slice(0, 10));
+  await page.getByLabel("Последний день").fill(end.toISOString().slice(0, 10));
   await page.getByLabel("Способ получения").selectOption("pickup");
-  await expect(page.getByRole("status")).toContainText("14 дней · самовывоз");
-  await expect(page.getByRole("status")).toContainText("Демо-расчёт: 6 300 ₽");
-  await expect(page.getByRole("status")).toContainText("не подтверждение наличия");
+  await page.getByRole("button", { name: "Проверить даты и стоимость" }).click();
+  await expect(page.getByRole("status")).toContainText("14 дн. · самовывоз");
+  await expect(page.getByRole("status")).toContainText("Аренда: 6 300 ₽");
+  await expect(page.getByRole("status")).toContainText("Расчёт выполнен сервером");
   await expect(page.locator("a[href^='tel:']")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Оформить аренду — скоро" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Перейти к бронированию — скоро" })).toBeDisabled();
   await page.getByText("Сколько стоит аренда?", { exact: true }).click();
   await expect(page.locator("details[open]")).toContainText("синтетические демо-тарифы");
   const results = await new AxeBuilder({ page })
@@ -44,7 +52,7 @@ test("FAQ works without JavaScript and mobile actions reach their sections", asy
   if (page.viewportSize()!.width < 700) {
     await mobileNav.getByRole("link", { name: "Условия аренды" }).click();
     await expect(page).toHaveURL(/#rental$/);
-    await expect(page.getByRole("heading", { name: /Понятные условия/ })).toBeInViewport();
+    await expect(page.getByRole("heading", { name: /Проверьте даты/ })).toBeInViewport();
   }
   const context = await browser.newContext({ javaScriptEnabled: false });
   const staticPage = await context.newPage();

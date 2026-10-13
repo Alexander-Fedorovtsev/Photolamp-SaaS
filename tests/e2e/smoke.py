@@ -2,6 +2,7 @@
 
 import json
 import os
+from datetime import date, timedelta
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -10,11 +11,15 @@ web_url = os.environ.get("E2E_BASE_URL", "http://127.0.0.1:3000")
 
 
 def request(
-    url: str, *, method: str = "GET", headers: dict[str, str] | None = None
+    url: str,
+    *,
+    method: str = "GET",
+    headers: dict[str, str] | None = None,
+    data: bytes | None = None,
 ) -> tuple[int, str]:
     try:
         with urlopen(
-            Request(url, method=method, headers=headers or {}), timeout=10
+            Request(url, method=method, headers=headers or {}, data=data), timeout=10
         ) as response:
             return response.status, response.read().decode()
     except HTTPError as error:
@@ -40,6 +45,26 @@ for slug, city in [("demo-ufa", "Уфа"), ("demo-kazan", "Казань")]:
     assert catalog["is_demo"] is True and catalog["booking_enabled"] is False
     assert catalog["availability_confirmed"] is False and catalog["items"]
     assert all(item["price_is_demo"] is True for item in catalog["items"])
+    start = date.today() + timedelta(days=10)
+    end = start + timedelta(days=2)
+    quote_request = {
+        "model_id": catalog["items"][0]["id"],
+        "branch_id": catalog["branches"][0]["id"],
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
+        "fulfillment": "pickup",
+    }
+    status, body = request(
+        f"{api_url}/api/v1/r/{slug}/checkout/quote",
+        method="POST",
+        headers={"Content-Type": "application/json"},
+        data=json.dumps(quote_request).encode(),
+    )
+    quote = json.loads(body)
+    assert status == 200 and quote["days"] == 3
+    assert quote["availability_confirmed"] is True
+    assert quote["reservation_created"] is False and quote["booking_enabled"] is False
+    assert quote["rental_amount_minor"] == quote["amount_minor_per_day"] * 3
     status, body = get(f"{web_url}/r/{slug}")
     assert status == 200 and catalog["display_name"] in body
 
@@ -73,6 +98,6 @@ assert (
 assert get(f"{api_url}/openapi.json")[0] == 200
 assert get(f"{web_url}/manifest.webmanifest")[0] == 200
 print(
-    "Stack smoke: readiness, two database catalogs, demo staff session, tenant admin, "
+    "Stack smoke: readiness, two catalogs and quotes, demo staff session, tenant admin, "
     "auth boundary, unknown tenant, OpenAPI and manifest passed"
 )
