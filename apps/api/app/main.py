@@ -5,7 +5,7 @@ from datetime import date
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 from sqlalchemy.exc import IntegrityError
@@ -14,10 +14,13 @@ from app.admin_routes import router as admin_router
 from app.auth import DemoSession, SessionRevoked, issue_demo_session, revoke_session
 from app.availability import Availability, Quote, QuoteRequest, calculate_quote, check_availability
 from app.catalog import PreviewTenant, PublicCatalog, load_public_catalog, preview_from_catalog
+from app.checkout import CheckoutSession, create_checkout_session
 from app.config import Settings
 from app.database import Database, create_engine
 from app.health import Readiness, check_readiness
 from app.holds import ReleasedHold, RentalHold, create_hold, release_hold
+from app.orders import DraftOrder, DraftOrderRequest, create_draft_order, load_draft_order
+from app.rate_limit import enforce_rate_limit
 from app.tenancy import (
     TenantContext,
     TenantSummary,
@@ -57,8 +60,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         description=(
             "Tenant/RLS foundation with an auditable catalog and date-aware quote preview. "
             "Synthetic demo staff access is environment-gated. Short-lived inventory holds are "
-            "available only for explicitly enabled storefronts; orders, SMS and payments are "
-            "unavailable."
+            "available only for explicitly enabled storefronts. Anonymous draft orders expire "
+            "with their hold; customer identity, SMS, confirmation and payments are unavailable."
         ),
     )
     application.include_router(admin_router)
@@ -170,6 +173,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @application.post(
+        "/api/v1/r/{tenant_slug}/checkout/sessions",
+        tags=["storefront"],
+        response_model=CheckoutSession,
+        status_code=201,
+    )
+    async def public_checkout_session(
+        tenant_slug: str,
+        request: Request,
+        response: Response,
+        db: Annotated[Database, Depends(database)],
+    ) -> CheckoutSession:
+        response.headers["Cache-Control"] = "no-store"
+        await enforce_rate_limit(
+            request.app.state.redis,
+            f"session:{tenant_slug}",
+            limit=config.checkout_session_rate_limit,
+            window_seconds=config.checkout_rate_limit_window_seconds,
+        )
+        return await create_checkout_session(
+            db,
+            tenant_slug,
+            allow_demo=config.enable_demo_previews,
+            ttl_seconds=config.checkout_session_ttl_seconds,
+        )
+
+    @application.post(
         "/api/v1/r/{tenant_slug}/checkout/holds",
         tags=["storefront"],
         response_model=RentalHold,
@@ -178,18 +207,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def public_hold(
         tenant_slug: str,
         command: QuoteRequest,
+        request: Request,
         response: Response,
         db: Annotated[Database, Depends(database)],
         idempotency_key: Annotated[
             str, Header(alias="Idempotency-Key", min_length=16, max_length=128)
         ],
+        checkout_token: Annotated[
+            str, Header(alias="X-Checkout-Token", min_length=32, max_length=128)
+        ],
     ) -> RentalHold:
         response.headers["Cache-Control"] = "no-store"
+        await enforce_rate_limit(
+            request.app.state.redis,
+            f"mutation:{tenant_slug}:{checkout_token}",
+            limit=config.checkout_mutation_rate_limit,
+            window_seconds=config.checkout_rate_limit_window_seconds,
+        )
         return await create_hold(
             db,
             tenant_slug,
             command,
             idempotency_key,
+            checkout_token,
             allow_demo=config.enable_demo_previews,
             ttl_seconds=config.hold_ttl_seconds,
         )
@@ -202,18 +242,96 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def public_release_hold(
         tenant_slug: str,
         hold_id: UUID,
+        request: Request,
         response: Response,
         db: Annotated[Database, Depends(database)],
         management_token: Annotated[
             str, Header(alias="X-Hold-Token", min_length=32, max_length=128)
         ],
+        checkout_token: Annotated[
+            str, Header(alias="X-Checkout-Token", min_length=32, max_length=128)
+        ],
     ) -> ReleasedHold:
         response.headers["Cache-Control"] = "no-store"
+        await enforce_rate_limit(
+            request.app.state.redis,
+            f"mutation:{tenant_slug}:{checkout_token}",
+            limit=config.checkout_mutation_rate_limit,
+            window_seconds=config.checkout_rate_limit_window_seconds,
+        )
         return await release_hold(
             db,
             tenant_slug,
             hold_id,
             management_token,
+            checkout_token,
+            allow_demo=config.enable_demo_previews,
+        )
+
+    @application.post(
+        "/api/v1/r/{tenant_slug}/checkout/orders",
+        tags=["storefront"],
+        response_model=DraftOrder,
+        status_code=201,
+    )
+    async def public_draft_order(
+        tenant_slug: str,
+        command: DraftOrderRequest,
+        request: Request,
+        response: Response,
+        db: Annotated[Database, Depends(database)],
+        idempotency_key: Annotated[
+            str, Header(alias="Idempotency-Key", min_length=16, max_length=128)
+        ],
+        checkout_token: Annotated[
+            str, Header(alias="X-Checkout-Token", min_length=32, max_length=128)
+        ],
+        hold_token: Annotated[str, Header(alias="X-Hold-Token", min_length=32, max_length=128)],
+    ) -> DraftOrder:
+        response.headers["Cache-Control"] = "no-store"
+        await enforce_rate_limit(
+            request.app.state.redis,
+            f"mutation:{tenant_slug}:{checkout_token}",
+            limit=config.checkout_mutation_rate_limit,
+            window_seconds=config.checkout_rate_limit_window_seconds,
+        )
+        return await create_draft_order(
+            db,
+            tenant_slug,
+            command,
+            idempotency_key,
+            checkout_token,
+            hold_token,
+            allow_demo=config.enable_demo_previews,
+        )
+
+    @application.get(
+        "/api/v1/r/{tenant_slug}/checkout/orders/{order_id}",
+        tags=["storefront"],
+        response_model=DraftOrder,
+    )
+    async def public_draft_order_detail(
+        tenant_slug: str,
+        order_id: UUID,
+        request: Request,
+        response: Response,
+        db: Annotated[Database, Depends(database)],
+        checkout_token: Annotated[
+            str, Header(alias="X-Checkout-Token", min_length=32, max_length=128)
+        ],
+    ) -> DraftOrder:
+        response.headers["Cache-Control"] = "no-store"
+        await enforce_rate_limit(
+            request.app.state.redis,
+            f"read:{tenant_slug}:{checkout_token}",
+            limit=config.checkout_mutation_rate_limit * 3,
+            window_seconds=config.checkout_rate_limit_window_seconds,
+        )
+        return await load_draft_order(
+            db,
+            tenant_slug,
+            order_id,
+            checkout_token,
             allow_demo=config.enable_demo_previews,
         )
 

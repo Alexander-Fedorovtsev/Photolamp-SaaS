@@ -138,8 +138,11 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 | API `POST/PATCH /api/v1/t/{tenant_id}/{models,assets,pricing,branches}` | Owner/admin CRUD без доверия к tenant ID из body; изменения аудируются |
 | API `/api/v1/r/{slug}/availability` | Агрегированная доступность модели на включительный диапазон дат |
 | API `POST /api/v1/r/{slug}/checkout/quote` | Серверный расчёт тарифа и снимок доступности без резервирования |
-| API `POST /api/v1/r/{slug}/checkout/holds` | Атомарный hold по `Idempotency-Key` только для явно включённой витрины |
-| API `DELETE /api/v1/r/{slug}/checkout/holds/{id}` | Освобождение hold по секретному `X-Hold-Token` |
+| API `POST /api/v1/r/{slug}/checkout/sessions` | Короткая анонимная capability без PII только для явно включённой витрины |
+| API `POST /api/v1/r/{slug}/checkout/holds` | Атомарный hold по `Idempotency-Key` + `X-Checkout-Token` |
+| API `DELETE /api/v1/r/{slug}/checkout/holds/{id}` | Освобождение hold по `X-Checkout-Token` + `X-Hold-Token` |
+| API `POST /api/v1/r/{slug}/checkout/orders` | Истекающий idempotent draft из активного hold; не подтверждает аренду |
+| API `GET /api/v1/r/{slug}/checkout/orders/{id}` | Активный draft только владельцу checkout capability |
 | API `POST /api/v1/t/{tenant_id}/assets/{asset_id}/blocks` | Tenant-scoped сервисная блокировка прибора с аудитом |
 | API `/docs`, `/openapi.json` | Реальная спецификация текущего API |
 | Web `/admin` | Адаптивная demo-панель с HttpOnly session proxy; не production-auth |
@@ -154,5 +157,6 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 Demo staff admin и аудит: `architecture/adr-0004-demo-staff-admin.md`.
 Availability и серверный quote: `architecture/adr-0005-availability-quote.md`.
 Атомарные rental holds: `architecture/adr-0006-atomic-rental-holds.md`.
+Анонимный checkout и draft orders: `architecture/adr-0007-anonymous-checkout-drafts.md`.
 Реализованный landing: `product/landing-foundation.md`.
 Публикация staging и GitHub CD: `deployment.md`.

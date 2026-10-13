@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-import secrets
 from datetime import datetime
 from typing import Literal
 from uuid import UUID, uuid4
@@ -13,6 +12,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.availability import Quote, QuoteRequest, load_quote_context, quote_from_context
+from app.capabilities import capability_digest, issue_capability
+from app.checkout import require_checkout_session
 from app.database import Database, PublicStorefrontNotFound, PublicTenantTransaction
 
 
@@ -34,15 +35,16 @@ class ReleasedHold(BaseModel):
     released: Literal[True] = True
 
 
-def _digest(value: str) -> bytes:
-    return hashlib.sha256(value.encode()).digest()
-
-
-async def _expire_holds(transaction: PublicTenantTransaction) -> None:
+async def expire_holds(transaction: PublicTenantTransaction) -> None:
     await transaction.session.execute(
         text(
-            "UPDATE rental_allocations SET state = 'expired', updated_at = now() "
-            "WHERE tenant_id = :tenant_id AND state = 'held' AND expires_at <= now()"
+            "WITH expired AS ("
+            "  UPDATE rental_allocations SET state = 'expired', updated_at = now() "
+            "  WHERE tenant_id = :tenant_id AND state = 'held' AND expires_at <= now() "
+            "  RETURNING order_id"
+            ") UPDATE orders SET state = 'expired', updated_at = now() "
+            "WHERE tenant_id = :tenant_id AND state = 'held' "
+            "AND id IN (SELECT order_id FROM expired WHERE order_id IS NOT NULL)"
         ),
         {"tenant_id": transaction.tenant_id},
     )
@@ -63,6 +65,7 @@ async def _create_hold_in_transaction(
     transaction: PublicTenantTransaction,
     command: QuoteRequest,
     key_hash: bytes,
+    checkout_token: str,
     *,
     ttl_seconds: int,
 ) -> RentalHold:
@@ -74,12 +77,16 @@ async def _create_hold_in_transaction(
     await transaction.session.execute(
         text("SELECT pg_advisory_xact_lock(:lock_key)"), {"lock_key": lock_key}
     )
-    await _expire_holds(transaction)
+    await expire_holds(transaction)
+    context, days = await load_quote_context(transaction, command)
+    if not bool(context["booking_enabled"]):
+        raise HTTPException(status_code=409, detail="Booking is not enabled")
+    checkout_session_id = await require_checkout_session(transaction, checkout_token)
     existing = (
         await transaction.session.execute(
             text(
                 "SELECT id, equipment_model_id, branch_id, start_date, end_date, "
-                "fulfillment, state, expires_at, quote_snapshot "
+                "fulfillment, state, expires_at, quote_snapshot, checkout_session_id "
                 "FROM rental_allocations WHERE tenant_id = :tenant_id "
                 "AND idempotency_key_hash = :key_hash FOR UPDATE"
             ),
@@ -87,14 +94,17 @@ async def _create_hold_in_transaction(
         )
     ).one_or_none()
     if existing is not None:
-        if not _same_request(existing, command):
+        if (
+            not _same_request(existing, command)
+            or UUID(str(existing.checkout_session_id)) != checkout_session_id
+        ):
             raise HTTPException(
                 status_code=409,
                 detail="Idempotency key was already used for another request",
             )
         if existing.state != "held":
             raise HTTPException(status_code=409, detail="Hold is no longer active")
-        token = secrets.token_urlsafe(32)
+        token, token_hash = issue_capability()
         await transaction.session.execute(
             text(
                 "UPDATE rental_allocations SET management_token_hash = :token_hash, "
@@ -103,7 +113,7 @@ async def _create_hold_in_transaction(
             {
                 "tenant_id": transaction.tenant_id,
                 "hold_id": existing.id,
-                "token_hash": _digest(token),
+                "token_hash": token_hash,
             },
         )
         return RentalHold(
@@ -114,9 +124,6 @@ async def _create_hold_in_transaction(
             quote=Quote.model_validate(existing.quote_snapshot),
         )
 
-    context, days = await load_quote_context(transaction, command)
-    if not bool(context["booking_enabled"]):
-        raise HTTPException(status_code=409, detail="Booking is not enabled")
     quote = quote_from_context(command, context, days)
     asset_id = await transaction.session.scalar(
         text(
@@ -143,18 +150,18 @@ async def _create_hold_in_transaction(
     if asset_id is None:
         raise HTTPException(status_code=409, detail="No units available for selected dates")
     hold_id = uuid4()
-    token = secrets.token_urlsafe(32)
+    token, token_hash = issue_capability()
     inserted = (
         await transaction.session.execute(
             text(
                 "INSERT INTO rental_allocations "
                 "(id, tenant_id, asset_id, equipment_model_id, branch_id, start_date, "
                 "end_date, fulfillment, state, expires_at, idempotency_key_hash, "
-                "management_token_hash, quote_snapshot) VALUES "
+                "management_token_hash, quote_snapshot, checkout_session_id) VALUES "
                 "(:id, :tenant_id, :asset_id, :model_id, :branch_id, :start_date, "
                 ":end_date, :fulfillment, 'held', "
                 "now() + make_interval(secs => :ttl_seconds), :key_hash, :token_hash, "
-                "CAST(:quote_snapshot AS jsonb)) RETURNING expires_at"
+                "CAST(:quote_snapshot AS jsonb), :checkout_session_id) RETURNING expires_at"
             ),
             {
                 "id": hold_id,
@@ -167,8 +174,9 @@ async def _create_hold_in_transaction(
                 "fulfillment": command.fulfillment,
                 "ttl_seconds": ttl_seconds,
                 "key_hash": key_hash,
-                "token_hash": _digest(token),
+                "token_hash": token_hash,
                 "quote_snapshot": json.dumps(quote.model_dump(mode="json")),
+                "checkout_session_id": checkout_session_id,
             },
         )
     ).one()
@@ -186,6 +194,7 @@ async def create_hold(
     slug: str,
     command: QuoteRequest,
     idempotency_key: str,
+    checkout_token: str,
     *,
     allow_demo: bool,
     ttl_seconds: int,
@@ -193,7 +202,11 @@ async def create_hold(
     try:
         async with database.public_tenant_transaction(slug, allow_demo=allow_demo) as transaction:
             return await _create_hold_in_transaction(
-                transaction, command, _digest(idempotency_key), ttl_seconds=ttl_seconds
+                transaction,
+                command,
+                capability_digest(idempotency_key),
+                checkout_token,
+                ttl_seconds=ttl_seconds,
             )
     except PublicStorefrontNotFound:
         raise HTTPException(status_code=404, detail="Storefront not found") from None
@@ -207,31 +220,47 @@ async def _release_hold_in_transaction(
     transaction: PublicTenantTransaction,
     hold_id: UUID,
     management_token: str,
+    checkout_token: str,
 ) -> ReleasedHold:
-    await _expire_holds(transaction)
-    released = await transaction.session.scalar(
-        text(
-            "UPDATE rental_allocations SET state = 'released', updated_at = now() "
-            "WHERE tenant_id = :tenant_id AND id = :hold_id AND state = 'held' "
-            "AND management_token_hash = :token_hash RETURNING id"
-        ),
-        {
-            "tenant_id": transaction.tenant_id,
-            "hold_id": hold_id,
-            "token_hash": _digest(management_token),
-        },
-    )
+    await expire_holds(transaction)
+    checkout_session_id = await require_checkout_session(transaction, checkout_token)
+    released = (
+        await transaction.session.execute(
+            text(
+                "UPDATE rental_allocations SET state = 'released', updated_at = now() "
+                "WHERE tenant_id = :tenant_id AND id = :hold_id AND state = 'held' "
+                "AND checkout_session_id = :checkout_session_id "
+                "AND management_token_hash = :token_hash RETURNING id, order_id"
+            ),
+            {
+                "tenant_id": transaction.tenant_id,
+                "hold_id": hold_id,
+                "token_hash": capability_digest(management_token),
+                "checkout_session_id": checkout_session_id,
+            },
+        )
+    ).one_or_none()
+    if released is not None and released.order_id is not None:
+        await transaction.session.execute(
+            text(
+                "UPDATE orders SET state = 'cancelled', updated_at = now() "
+                "WHERE tenant_id = :tenant_id AND id = :order_id AND state = 'held'"
+            ),
+            {"tenant_id": transaction.tenant_id, "order_id": released.order_id},
+        )
     if released is None:
         already_released = await transaction.session.scalar(
             text(
                 "SELECT id FROM rental_allocations WHERE tenant_id = :tenant_id "
                 "AND id = :hold_id AND state = 'released' "
+                "AND checkout_session_id = :checkout_session_id "
                 "AND management_token_hash = :token_hash"
             ),
             {
                 "tenant_id": transaction.tenant_id,
                 "hold_id": hold_id,
-                "token_hash": _digest(management_token),
+                "token_hash": capability_digest(management_token),
+                "checkout_session_id": checkout_session_id,
             },
         )
         if already_released is None:
@@ -244,11 +273,14 @@ async def release_hold(
     slug: str,
     hold_id: UUID,
     management_token: str,
+    checkout_token: str,
     *,
     allow_demo: bool,
 ) -> ReleasedHold:
     try:
         async with database.public_tenant_transaction(slug, allow_demo=allow_demo) as transaction:
-            return await _release_hold_in_transaction(transaction, hold_id, management_token)
+            return await _release_hold_in_transaction(
+                transaction, hold_id, management_token, checkout_token
+            )
     except PublicStorefrontNotFound:
         raise HTTPException(status_code=404, detail="Storefront not found") from None

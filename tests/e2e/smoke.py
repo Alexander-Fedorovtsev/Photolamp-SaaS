@@ -65,6 +65,12 @@ for slug, city in [("demo-ufa", "Уфа"), ("demo-kazan", "Казань")]:
     assert quote["availability_confirmed"] is True
     assert quote["reservation_created"] is False and quote["booking_enabled"] is False
     assert quote["rental_amount_minor"] == quote["amount_minor_per_day"] * 3
+    status, body = request(
+        f"{api_url}/api/v1/r/{slug}/checkout/sessions",
+        method="POST",
+    )
+    assert status == 409 and json.loads(body) == {"detail": "Booking is not enabled"}
+    assert "checkout_token" not in body
     status, body = get(f"{web_url}/r/{slug}")
     assert status == 200 and catalog["display_name"] in body
 
@@ -98,6 +104,6 @@ assert (
 assert get(f"{api_url}/openapi.json")[0] == 200
 assert get(f"{web_url}/manifest.webmanifest")[0] == 200
 print(
-    "Stack smoke: readiness, two catalogs and quotes, demo staff session, tenant admin, "
-    "auth boundary, unknown tenant, OpenAPI and manifest passed"
+    "Stack smoke: readiness, two catalogs and quotes, blocked demo checkout, demo staff "
+    "session, tenant admin, auth boundary, unknown tenant, OpenAPI and manifest passed"
 )
