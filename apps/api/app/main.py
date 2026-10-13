@@ -1,14 +1,24 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Annotated
+from uuid import UUID
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 
 from app.config import Settings
-from app.database import create_engine
+from app.database import Database, create_engine
 from app.health import Readiness, check_readiness
 from app.previews import DEMO_TENANTS, PreviewTenant
+from app.tenancy import (
+    TenantContext,
+    TenantSummary,
+    database,
+    get_tenant_context,
+    list_memberships,
+    session_digest,
+)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -23,6 +33,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             socket_timeout=config.dependency_timeout_seconds,
         )
         application.state.engine = engine
+        application.state.database = Database(engine)
         application.state.redis = redis
         try:
             yield
@@ -35,8 +46,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
         description=(
-            "Foundation only. Demo previews are synthetic; "
-            "booking, SMS and payments are unavailable."
+            "Tenant/RLS foundation with synthetic public previews. "
+            "Session issuance, booking, SMS and payments are unavailable."
         ),
     )
 
@@ -74,6 +85,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if tenant is None:
             raise HTTPException(status_code=404, detail="Preview not found")
         return tenant
+
+    @application.get(
+        "/api/v1/me/tenants",
+        tags=["tenancy"],
+        response_model=list[TenantSummary],
+    )
+    async def my_tenants(
+        digest: Annotated[bytes, Depends(session_digest)],
+        db: Annotated[Database, Depends(database)],
+    ) -> list[TenantSummary]:
+        if await db.session_user(digest) is None:
+            raise HTTPException(
+                status_code=401,
+                detail="Valid session required",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return await list_memberships(db, digest)
+
+    @application.get(
+        "/api/v1/t/{tenant_id}/context",
+        tags=["tenancy"],
+        response_model=TenantContext,
+    )
+    async def tenant_context(
+        tenant_id: UUID,
+        digest: Annotated[bytes, Depends(session_digest)],
+        db: Annotated[Database, Depends(database)],
+    ) -> TenantContext:
+        return await get_tenant_context(db, digest, tenant_id)
 
     return application
 

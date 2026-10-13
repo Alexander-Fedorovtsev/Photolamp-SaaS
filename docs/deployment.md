@@ -160,6 +160,12 @@ Workflow подключается по SSH, проверяет origin и чис�
 берёт flock до checkout/build, делает detached checkout точного `origin/main`,
 запускает `infra/scripts/deploy.sh`. `.env` и данные не заменяются.
 
+При первом деплое tenant foundation скрипт атомарно добавляет в защищённый `.env`
+отдельный 64-символьный `POSTGRES_RUNTIME_PASSWORD`, если строка отсутствует или
+содержит документированный placeholder. Значение не печатается. Затем bootstrap
+создаёт/обновляет `photolamp_runtime`; owner credentials получает только migration
+контейнер, API работает под runtime-ролью без DDL и `BYPASSRLS`.
+
 Деплой проверяет конфигурацию, отсутствие published ports, isolated network,
 bcrypt и credentials, собирает образы с SHA, применяет forward migration и
 ожидает готовность. Снаружи проверяются сертификат HTTPS, Basic Auth, readiness
@@ -198,7 +204,7 @@ curl --user photolamp https://photolamp-test.anliwei.pro/api/version
 ```bash
 export PHOTOLAMP_DEPLOY_SHA="$(git rev-parse HEAD)"
 docker compose -p photolamp-test --env-file .env -f compose.yaml -f compose.staging.yaml ps
-docker compose -p photolamp-test --env-file .env -f compose.yaml -f compose.staging.yaml logs --tail 80 api web migrate
+docker compose -p photolamp-test --env-file .env -f compose.yaml -f compose.staging.yaml logs --tail 80 api web db-bootstrap migrate
 ```
 
 CD не использует `down --volumes`, Docker prune, git clean, замену `.env` или

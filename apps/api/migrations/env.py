@@ -15,7 +15,7 @@ def run_migrations(connection: Connection) -> None:
 
 async def migrate_online() -> None:
     engine = create_async_engine(
-        Settings().database_url.get_secret_value(),
+        Settings().migration_database_url(),
         poolclass=pool.NullPool,
     )
     async with engine.connect() as connection:
@@ -24,7 +24,7 @@ async def migrate_online() -> None:
 
 
 if context.is_offline_mode():
-    context.configure(url=Settings().database_url.get_secret_value(), literal_binds=True)
+    context.configure(url=Settings().migration_database_url(), literal_binds=True)
     with context.begin_transaction():
         context.run_migrations()
 else:

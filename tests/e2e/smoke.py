@@ -32,6 +32,10 @@ for slug, city in [("demo-ufa", "Уфа"), ("demo-kazan", "Казань")]:
 
 assert get(f"{api_url}/api/v1/r/unknown/preview")[0] == 404
 assert get(f"{web_url}/r/unknown")[0] == 404
+assert get(f"{api_url}/api/v1/me/tenants")[0] == 401
 assert get(f"{api_url}/openapi.json")[0] == 200
 assert get(f"{web_url}/manifest.webmanifest")[0] == 200
-print("Stack smoke: readiness, two previews, unknown tenant, OpenAPI and manifest passed")
+print(
+    "Stack smoke: readiness, two previews, auth boundary, unknown tenant, "
+    "OpenAPI and manifest passed"
+)

@@ -3,6 +3,7 @@
 import json
 import re
 import sys
+from urllib.parse import urlsplit
 
 
 class StagingConfigError(ValueError):
@@ -17,7 +18,7 @@ def validate(model: dict) -> None:
     require(model.get("name") == "photolamp-test", "Unexpected staging project name")
     services = model["services"]
     require(
-        set(services) == {"postgres", "redis", "migrate", "api", "web"},
+        set(services) == {"postgres", "redis", "db-bootstrap", "migrate", "api", "web"},
         "Unexpected staging services",
     )
     database = services["postgres"]["environment"]
@@ -33,17 +34,37 @@ def validate(model: dict) -> None:
             networks == ({"internal", "traefik"} if name == "web" else {"internal"}),
             "Unexpected network exposure",
         )
-    for name in ("api", "migrate"):
+    runtime_url = urlsplit(services["api"]["environment"]["DATABASE_URL"])
+    runtime_password = runtime_url.password or ""
+    require(
+        runtime_url.username == "photolamp_runtime"
+        and bool(re.fullmatch(r"[a-fA-F0-9]{64}", runtime_password))
+        and runtime_password != password,
+        "Use a separate 64-character runtime database password",
+    )
+    for name in ("api", "migrate", "db-bootstrap"):
         env = services[name]["environment"]
         require(
             env["APP_ENV"] == "staging"
             and str(env["ENABLE_DEMO_PREVIEWS"]).lower() == "true",
             "Staging must be an explicit synthetic demo",
         )
-        expected_url = f"postgresql+asyncpg://{database['POSTGRES_USER']}:{password}@postgres:5432/{database['POSTGRES_DB']}"
+        expected_runtime_url = f"postgresql+asyncpg://photolamp_runtime:{runtime_password}@postgres:5432/{database['POSTGRES_DB']}"
         require(
-            env["DATABASE_URL"] == expected_url, "Database configuration does not match"
+            env["DATABASE_URL"] == expected_runtime_url,
+            "Runtime database configuration does not match",
         )
+        if name in {"migrate", "db-bootstrap"}:
+            expected_owner_url = f"postgresql+asyncpg://{database['POSTGRES_USER']}:{password}@postgres:5432/{database['POSTGRES_DB']}"
+            require(
+                env.get("DATABASE_OWNER_URL") == expected_owner_url,
+                "Owner database configuration does not match",
+            )
+        else:
+            require(
+                "DATABASE_OWNER_URL" not in env,
+                "API must not receive database owner credentials",
+            )
     labels = services["web"]["labels"]
     require(
         services["web"]["environment"]["API_INTERNAL_URL"]
@@ -78,7 +99,7 @@ def validate(model: dict) -> None:
         model["networks"]["internal"]["internal"] is True,
         "Private network must be internal",
     )
-    for name in ("api", "web", "migrate"):
+    for name in ("api", "web", "migrate", "db-bootstrap"):
         sha = services[name]["build"]["args"]["PHOTOLAMP_DEPLOY_SHA"]
         require(
             bool(re.fullmatch(r"[a-f0-9]{40}", sha)), "Images require an exact Git SHA"

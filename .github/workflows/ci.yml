@@ -59,6 +59,9 @@ jobs:
     defaults:
       run:
         working-directory: apps/api
+    env:
+      DATABASE_URL: postgresql+asyncpg://photolamp_runtime:local-runtime-only@localhost:5432/photolamp
+      DATABASE_OWNER_URL: postgresql+asyncpg://photolamp:local-development-only@localhost:5432/photolamp
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -69,6 +72,7 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy app migrations tests
+      - run: uv run python -m app.bootstrap_runtime_role
       - run: uv run alembic upgrade head
       - run: uv run pytest --cov=app --cov-report=term-missing --cov-fail-under=85
       - run: uv run alembic downgrade base

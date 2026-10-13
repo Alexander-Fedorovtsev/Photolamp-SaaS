@@ -14,7 +14,8 @@ python3 tests/e2e/smoke.py
 
 Откройте `http://localhost:3000`, демо `http://localhost:3000/r/demo-ufa` и
 `http://localhost:3000/r/demo-kazan`, API docs `http://localhost:8000/docs`.
-Compose запускает миграцию до API. База в named volume сохраняется при остановке;
+Compose создаёт/обновляет отдельную runtime-роль, затем запускает миграцию до API.
+База в named volume сохраняется при остановке;
 Redis без persistence, поскольку фоновые задачи ещё отсутствуют.
 `docker compose logs api web migrate` помогает диагностировать запуск.
 `docker compose down` останавливает стек; `docker compose down --volumes`
@@ -40,6 +41,7 @@ API (отдельный терминал):
 ```bash
 cd apps/api
 uv sync --frozen
+uv run --env-file ../../.env python -m app.bootstrap_runtime_role
 uv run --env-file ../../.env alembic upgrade head
 uv run --env-file ../../.env uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
@@ -128,6 +130,8 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 | API `/api/v1/health/live` | 200 при живом процессе |
 | API `/api/v1/health/ready` | 200 после PostgreSQL migration + Redis PING; иначе 503 |
 | API `/api/v1/r/{slug}/preview` | Публичный synthetic demo DTO, либо 404 |
+| API `/api/v1/me/tenants` | Активные memberships непрозрачной сессии; 401 без неё |
+| API `/api/v1/t/{tenant_id}/context` | Проверенный tenant context под RLS; 404 для чужого tenant |
 | API `/docs`, `/openapi.json` | Реальная спецификация текущего API |
 | Web `/api/health/live` | 200 при живом web |
 | Web `/api/health/ready` | 200 при готовом API; иначе 503 |
@@ -135,5 +139,6 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 | Web `/api/version` | SHA web/API при совпадении, иначе 503; no-store |
 
 План и границы SaaS: `architecture/adr-0001-foundation.md`.
+Реализованная tenant/RLS-модель: `architecture/adr-0002-tenant-identity-rls.md`.
 Подготовка следующего landing PR: `product/landing-foundation.md`.
 Публикация staging и GitHub CD: `deployment.md`.
