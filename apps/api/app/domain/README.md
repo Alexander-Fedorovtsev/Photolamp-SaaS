@@ -7,8 +7,10 @@ public read model are implemented by migration `0003` and `app.catalog`. Migrati
 sessions, auditable tenant catalog CRUD and the protected admin read-model. Availability,
 server quotes, atomic inventory holds, anonymous expiring draft orders and a local/test
 OTP identity boundary are implemented without plaintext customer phone storage. A customer
-session can read only its own privacy-minimized order history. No real SMS provider,
-confirmed booking or payment exists.
+session can read only its own privacy-minimized order history. Staff order operations use
+immutable snapshots, idempotent events and atomic `held` to `confirmed` or `cancelled`
+transitions. No real SMS provider, public confirmation, production staff login or payment
+exists; the disabled and local/test memory SMS adapters preserve the future provider port.
 Add domain modules here only with their migrations, authorization and critical isolation
 tests.
 
@@ -18,4 +20,4 @@ to explicitly public DTOs. URL parameters and headers never establish permission
 See ADR 0002 for identity/RLS, ADR 0003 for catalog boundaries, ADR 0004 for the
 explicit demo staff boundary and ADR 0007 for the anonymous checkout boundary.
 ADR 0008 defines the customer OTP and provider boundary. ADR 0009 defines the customer
-order read model.
+order read model. ADR 0010 defines staff order operations and immutable snapshots.

@@ -14,7 +14,12 @@ from sqlalchemy.exc import IntegrityError
 from app.availability import Quote, QuoteRequest, load_quote_context, quote_from_context
 from app.capabilities import capability_digest, issue_capability
 from app.checkout import require_checkout_session
-from app.database import Database, PublicStorefrontNotFound, PublicTenantTransaction
+from app.database import (
+    Database,
+    PublicStorefrontNotFound,
+    PublicTenantTransaction,
+    TenantTransaction,
+)
 
 
 class RentalHold(BaseModel):
@@ -35,7 +40,7 @@ class ReleasedHold(BaseModel):
     released: Literal[True] = True
 
 
-async def expire_holds(transaction: PublicTenantTransaction) -> None:
+async def expire_holds(transaction: PublicTenantTransaction | TenantTransaction) -> None:
     await transaction.session.execute(
         text(
             "WITH expired AS ("

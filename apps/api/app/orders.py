@@ -26,6 +26,22 @@ class DraftOrderRequest(BaseModel):
     hold_id: UUID
 
 
+class OrderSnapshot(BaseModel):
+    """Customer-safe facts frozen when the order is created."""
+
+    model_config = ConfigDict(frozen=True)
+
+    schema_version: Literal[1] = 1
+    model_id: UUID
+    model_name: str
+    branch_id: UUID
+    branch_name: str
+    start_date: date
+    end_date: date
+    fulfillment: Fulfillment
+    quote: Quote
+
+
 class DraftOrder(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -37,6 +53,7 @@ class DraftOrder(BaseModel):
     fulfillment: Fulfillment
     expires_at: datetime
     quote: Quote
+    snapshot: OrderSnapshot
     identity_verified: bool
     payment_status: Literal["not_started"] = "not_started"
     confirmation_available: Literal[False] = False
@@ -49,13 +66,14 @@ class CustomerOrder(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     order_id: UUID
-    state: Literal["held", "expired", "cancelled"]
+    state: Literal["held", "confirmed", "expired", "cancelled"]
     source: Literal["website"]
     start_date: date
     end_date: date
     fulfillment: Fulfillment
     expires_at: datetime
     quote: Quote
+    snapshot: OrderSnapshot
     identity_verified: Literal[True] = True
     payment_status: Literal["not_started"] = "not_started"
     confirmation_available: Literal[False] = False
@@ -81,6 +99,7 @@ def _draft_from_row(row: object, *, replayed: bool) -> DraftOrder:
         fulfillment=mapping["fulfillment"],
         expires_at=mapping["expires_at"],
         quote=Quote.model_validate(mapping["quote_snapshot"]),
+        snapshot=OrderSnapshot.model_validate(mapping["order_snapshot"]),
         identity_verified=mapping["customer_id"] is not None,
         replayed=replayed,
     )
@@ -97,6 +116,7 @@ def _customer_order_from_row(row: object) -> CustomerOrder:
         fulfillment=mapping["fulfillment"],
         expires_at=mapping["expires_at"],
         quote=Quote.model_validate(mapping["quote_snapshot"]),
+        snapshot=OrderSnapshot.model_validate(mapping["order_snapshot"]),
         created_at=mapping["created_at"],
         updated_at=mapping["updated_at"],
     )
@@ -164,12 +184,18 @@ async def _create_draft_order_in_transaction(
     allocation = (
         await transaction.session.execute(
             text(
-                "SELECT id, branch_id, start_date, end_date, fulfillment, expires_at, "
-                "quote_snapshot, order_id FROM rental_allocations "
-                "WHERE tenant_id = :tenant_id AND id = :hold_id "
-                "AND checkout_session_id = :checkout_session_id "
-                "AND management_token_hash = :hold_token_hash "
-                "AND state = 'held' AND expires_at > now() FOR UPDATE"
+                "SELECT ra.id, ra.branch_id, ra.start_date, ra.end_date, ra.fulfillment, "
+                "ra.expires_at, "
+                "ra.quote_snapshot, ra.order_id, ra.equipment_model_id, "
+                "em.name AS model_name, b.name AS branch_name "
+                "FROM rental_allocations ra "
+                "JOIN equipment_models em ON em.tenant_id = ra.tenant_id "
+                "AND em.id = ra.equipment_model_id "
+                "JOIN branches b ON b.tenant_id = ra.tenant_id AND b.id = ra.branch_id "
+                "WHERE ra.tenant_id = :tenant_id AND ra.id = :hold_id "
+                "AND ra.checkout_session_id = :checkout_session_id "
+                "AND ra.management_token_hash = :hold_token_hash "
+                "AND ra.state = 'held' AND ra.expires_at > now() FOR UPDATE OF ra"
             ),
             {
                 "tenant_id": transaction.tenant_id,
@@ -185,16 +211,27 @@ async def _create_draft_order_in_transaction(
         raise HTTPException(status_code=409, detail="Hold already belongs to a draft order")
 
     order_id = uuid4()
+    order_snapshot = OrderSnapshot(
+        model_id=allocation.equipment_model_id,
+        model_name=allocation.model_name,
+        branch_id=allocation.branch_id,
+        branch_name=allocation.branch_name,
+        start_date=allocation.start_date,
+        end_date=allocation.end_date,
+        fulfillment=allocation.fulfillment,
+        quote=Quote.model_validate(allocation.quote_snapshot),
+    )
     created = (
         await transaction.session.execute(
             text(
                 "INSERT INTO orders "
                 "(id, tenant_id, branch_id, checkout_session_id, allocation_id, source, "
                 "state, start_date, end_date, fulfillment, expires_at, quote_snapshot, "
-                "idempotency_key_hash, customer_id) VALUES "
+                "idempotency_key_hash, customer_id, order_snapshot) VALUES "
                 "(:id, :tenant_id, :branch_id, :checkout_session_id, :allocation_id, "
                 "'website', 'held', :start_date, :end_date, :fulfillment, :expires_at, "
-                "CAST(:quote_snapshot AS jsonb), :idempotency_hash, :customer_id) RETURNING *"
+                "CAST(:quote_snapshot AS jsonb), :idempotency_hash, :customer_id, "
+                "CAST(:order_snapshot AS jsonb)) RETURNING *"
             ),
             {
                 "id": order_id,
@@ -209,6 +246,7 @@ async def _create_draft_order_in_transaction(
                 "quote_snapshot": json.dumps(allocation.quote_snapshot),
                 "idempotency_hash": idempotency_hash,
                 "customer_id": customer_id,
+                "order_snapshot": json.dumps(order_snapshot.model_dump(mode="json")),
             },
         )
     ).one()
