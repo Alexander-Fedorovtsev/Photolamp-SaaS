@@ -41,6 +41,13 @@ const orderFixture = {
   expires_at: "2030-01-01T12:15:00+00:00",
   confirmed_at: null,
   confirmed_by_staff_user_id: null,
+  handed_over_at: null,
+  handed_over_by_staff_user_id: null,
+  returned_at: null,
+  returned_by_staff_user_id: null,
+  completed_at: null,
+  completed_by_staff_user_id: null,
+  inspection_outcome: null,
   created_at: "2030-01-01T12:00:00+00:00",
   updated_at: "2030-01-01T12:00:00+00:00",
 } as const satisfies AdminOrder;
@@ -168,6 +175,60 @@ test("staff can create a synthetic phone order without an SMS integration", asyn
       body: JSON.stringify({ order: createdOrder, replayed: false }),
     });
   });
+  await page.route(/\/api\/admin\/orders\/[^/]+\/contact\?.*$/, async (route) => {
+    expect(route.request().headers()["idempotency-key"]).toMatch(/^admin-contact-/);
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        contact: {
+          phone_e164: "+70000000000",
+          recipient_name: "Тестовый клиент",
+          delivery_address: null,
+        },
+        replayed: false,
+      }),
+    });
+  });
+  await page.route(
+    /\/api\/admin\/orders\/[^/]+\/(handover|return|inspection)\?.*$/,
+    async (route) => {
+      const action = new URL(route.request().url()).pathname.split("/").at(-1);
+      expect(route.request().headers()["idempotency-key"]).toMatch(`admin-${action}-`);
+      const current = createdOrder ?? orderFixture;
+      if (action === "handover") {
+        createdOrder = {
+          ...current,
+          state: "in_progress",
+          handed_over_at: "2030-01-01T12:10:00+00:00",
+          handed_over_by_staff_user_id: "d5000000-0000-0000-0000-000000000001",
+          updated_at: "2030-01-01T12:10:00+00:00",
+        };
+      } else if (action === "return") {
+        createdOrder = {
+          ...current,
+          state: "returned",
+          returned_at: "2030-01-03T12:10:00+00:00",
+          returned_by_staff_user_id: "d5000000-0000-0000-0000-000000000001",
+          updated_at: "2030-01-03T12:10:00+00:00",
+        };
+      } else {
+        expect(route.request().postDataJSON()).toEqual({ outcome: "passed" });
+        createdOrder = {
+          ...current,
+          state: "completed",
+          completed_at: "2030-01-03T12:15:00+00:00",
+          completed_by_staff_user_id: "d5000000-0000-0000-0000-000000000001",
+          inspection_outcome: "passed",
+          updated_at: "2030-01-03T12:15:00+00:00",
+        };
+      }
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ order: createdOrder, replayed: false }),
+      });
+    },
+  );
+  page.on("dialog", (dialog) => void dialog.accept());
 
   await page.goto("/admin");
   await page.getByRole("button", { name: "Войти в demo-панель" }).click();
@@ -180,4 +241,15 @@ test("staff can create a synthetic phone order without an SMS integration", asyn
   ).toBeVisible();
   await page.getByText("Синтетическая фотолампа", { exact: true }).click();
   await expect(page.getByText("Заказ по телефону", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Показать контакт" }).click();
+  await expect(page.getByRole("link", { name: "+70000000000" })).toBeVisible();
+  await page.getByRole("button", { name: "Выдать клиенту" }).click();
+  await expect(page.getByText("Передача отмечена. Прибор числится у клиента.")).toBeVisible();
+  await page.getByText("Синтетическая фотолампа", { exact: true }).click();
+  await page.getByRole("button", { name: "Принять возврат" }).click();
+  await expect(page.getByText("Возврат принят. Прибор ожидает осмотра.")).toBeVisible();
+  await page.getByText("Синтетическая фотолампа", { exact: true }).click();
+  await page.getByRole("button", { name: "Осмотр пройден" }).click();
+  await expect(page.getByText("Осмотр завершён. Прибор снова доступен.")).toBeVisible();
+  await expect(page.getByText("Завершён", { exact: true })).toBeVisible();
 });

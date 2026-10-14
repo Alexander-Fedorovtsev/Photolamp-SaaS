@@ -2,9 +2,11 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
+  adminOrderContactAccessSchema,
   adminOrderPageSchema,
   adminOrderTransitionSchema,
   type AdminOrder,
+  type AdminOrderContact,
   type AdminOrderPage,
   type AdminOrderState,
   type AdminCatalog,
@@ -15,6 +17,9 @@ type OrderFilter = "all" | AdminOrderState;
 const stateLabels: Record<AdminOrderState, string> = {
   held: "Ожидает подтверждения",
   confirmed: "Подтверждён",
+  in_progress: "У клиента",
+  returned: "На осмотре",
+  completed: "Завершён",
   expired: "Истёк",
   cancelled: "Отменён",
 };
@@ -103,8 +108,20 @@ export function AdminOrders({
     void loadOrders();
   }, [loadOrders]);
 
-  async function transition(order: AdminOrder, action: "confirm" | "cancel") {
-    const verb = action === "confirm" ? "подтвердить" : "отменить";
+  async function transition(
+    order: AdminOrder,
+    action: "confirm" | "cancel" | "handover" | "return" | "inspection",
+    outcome?: "passed" | "maintenance_required",
+  ) {
+    const verbs = {
+      confirm: "подтвердить",
+      cancel: "отменить",
+      handover: order.snapshot.fulfillment === "delivery" ? "передать в доставку" : "выдать",
+      return: "принять возврат",
+      inspection:
+        outcome === "passed" ? "завершить осмотр и освободить прибор" : "отправить прибор в ремонт",
+    };
+    const verb = verbs[action];
     if (!window.confirm(`Действительно ${verb} заказ ${order.order_id.slice(0, 8)}?`)) return;
     setBusyOrderId(order.order_id);
     setNotice("");
@@ -113,7 +130,11 @@ export function AdminOrders({
         `/api/admin/orders/${encodeURIComponent(order.order_id)}/${action}?tenant_id=${encodeURIComponent(tenantId)}`,
         {
           method: "POST",
-          headers: { "Idempotency-Key": `admin-${action}-${crypto.randomUUID()}` },
+          headers: {
+            "Idempotency-Key": `admin-${action}-${crypto.randomUUID()}`,
+            ...(action === "inspection" ? { "Content-Type": "application/json" } : {}),
+          },
+          body: action === "inspection" ? JSON.stringify({ outcome }) : undefined,
         },
       );
       if (response.status === 401) {
@@ -127,7 +148,17 @@ export function AdminOrders({
       }
       adminOrderTransitionSchema.parse(payload);
       await loadOrders();
-      setNotice(action === "confirm" ? "Заказ подтверждён." : "Заказ отменён.");
+      const notices = {
+        confirm: "Заказ подтверждён.",
+        cancel: "Заказ отменён.",
+        handover: "Передача отмечена. Прибор числится у клиента.",
+        return: "Возврат принят. Прибор ожидает осмотра.",
+        inspection:
+          outcome === "passed"
+            ? "Осмотр завершён. Прибор снова доступен."
+            : "Осмотр завершён. Прибор переведён в обслуживание.",
+      };
+      setNotice(notices[action]);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Не удалось изменить заказ");
     } finally {
@@ -155,6 +186,9 @@ export function AdminOrders({
             <option value="all">Все</option>
             <option value="held">Ожидают подтверждения</option>
             <option value="confirmed">Подтверждены</option>
+            <option value="in_progress">У клиента</option>
+            <option value="returned">На осмотре</option>
+            <option value="completed">Завершены</option>
             <option value="expired">Истекли</option>
             <option value="cancelled">Отменены</option>
           </select>
@@ -194,9 +228,11 @@ export function AdminOrders({
             <OrderCard
               key={order.order_id}
               order={order}
+              tenantId={tenantId}
               timeZone={timeZone}
               busy={busyOrderId === order.order_id}
               onTransition={transition}
+              onUnauthorized={onUnauthorized}
             />
           ))}
         </div>
@@ -207,21 +243,68 @@ export function AdminOrders({
 
 function OrderCard({
   order,
+  tenantId,
   timeZone,
   busy,
   onTransition,
+  onUnauthorized,
 }: {
   order: AdminOrder;
+  tenantId: string;
   timeZone: string;
   busy: boolean;
-  onTransition: (order: AdminOrder, action: "confirm" | "cancel") => Promise<void>;
+  onTransition: (
+    order: AdminOrder,
+    action: "confirm" | "cancel" | "handover" | "return" | "inspection",
+    outcome?: "passed" | "maintenance_required",
+  ) => Promise<void>;
+  onUnauthorized: () => void;
 }) {
+  const [contact, setContact] = useState<AdminOrderContact | null>(null);
+  const [contactError, setContactError] = useState("");
+  const [contactLoading, setContactLoading] = useState(false);
   const canConfirm = order.state === "held" && order.identity_verified;
   const canCancel = order.state === "held" || order.state === "confirmed";
   const period = `${formatDate(order.snapshot.start_date)} — ${formatDate(order.snapshot.end_date)}`;
 
+  async function revealContact() {
+    setContactLoading(true);
+    setContactError("");
+    try {
+      const response = await fetch(
+        `/api/admin/orders/${encodeURIComponent(order.order_id)}/contact?tenant_id=${encodeURIComponent(tenantId)}`,
+        {
+          method: "POST",
+          headers: { "Idempotency-Key": `admin-contact-${crypto.randomUUID()}` },
+        },
+      );
+      if (response.status === 401) {
+        onUnauthorized();
+        return;
+      }
+      const payload = await responsePayload(response);
+      if (!response.ok) {
+        const detail = (payload as { detail?: string }).detail;
+        throw new Error(detail ?? "Контакт недоступен");
+      }
+      setContact(adminOrderContactAccessSchema.parse(payload).contact);
+    } catch (error) {
+      setContactError(error instanceof Error ? error.message : "Контакт недоступен");
+    } finally {
+      setContactLoading(false);
+    }
+  }
+
   return (
-    <details className="admin-order-card">
+    <details
+      className="admin-order-card"
+      onToggle={(event) => {
+        if (!event.currentTarget.open) {
+          setContact(null);
+          setContactError("");
+        }
+      }}
+    >
       <summary>
         <div className="admin-order-summary-main">
           <span className={`status status-${order.state}`}>{stateLabels[order.state]}</span>
@@ -274,8 +357,63 @@ function OrderCard({
         {order.state === "confirmed" && order.confirmed_at && (
           <p className="small">Подтверждён {formatDateTime(order.confirmed_at, timeZone)}.</p>
         )}
+        {order.state === "in_progress" && order.handed_over_at && (
+          <p className="small">Передан {formatDateTime(order.handed_over_at, timeZone)}.</p>
+        )}
+        {order.state === "returned" && order.returned_at && (
+          <p className="small">Возвращён {formatDateTime(order.returned_at, timeZone)}.</p>
+        )}
+        {order.state === "completed" && order.completed_at && (
+          <p className="small">
+            Завершён {formatDateTime(order.completed_at, timeZone)} ·{" "}
+            {order.inspection_outcome === "passed"
+              ? "прибор готов к аренде"
+              : "прибор направлен в обслуживание"}
+          </p>
+        )}
         <code className="admin-order-id">{order.order_id}</code>
-        {canCancel && (
+        {order.source === "phone" &&
+          (["confirmed", "in_progress", "returned"] as AdminOrderState[]).includes(order.state) && (
+            <div className="admin-contact-access">
+              {contact ? (
+                <div className="admin-contact-panel">
+                  <div>
+                    <span>Получатель</span>
+                    <strong>{contact.recipient_name}</strong>
+                  </div>
+                  <div>
+                    <span>Телефон</span>
+                    <a href={`tel:${contact.phone_e164}`}>{contact.phone_e164}</a>
+                  </div>
+                  {contact.delivery_address && (
+                    <div>
+                      <span>Адрес доставки</span>
+                      <strong>{contact.delivery_address}</strong>
+                    </div>
+                  )}
+                  <button className="text-button" type="button" onClick={() => setContact(null)}>
+                    Скрыть контакт
+                  </button>
+                </div>
+              ) : (
+                <button
+                  className="button secondary"
+                  type="button"
+                  disabled={contactLoading || busy}
+                  onClick={() => void revealContact()}
+                >
+                  {contactLoading ? "Открываем…" : "Показать контакт"}
+                </button>
+              )}
+              <p className="small">Каждое открытие контакта записывается в аудит.</p>
+              {contactError && (
+                <p className="admin-alert" role="alert">
+                  {contactError}
+                </p>
+              )}
+            </div>
+          )}
+        {(canCancel || ["in_progress", "returned"].includes(order.state)) && (
           <div className="admin-order-actions">
             {order.state === "held" && (
               <button
@@ -290,14 +428,60 @@ function OrderCard({
                 {busy ? "Сохраняем…" : "Подтвердить"}
               </button>
             )}
-            <button
-              className="button secondary"
-              type="button"
-              disabled={busy}
-              onClick={() => void onTransition(order, "cancel")}
-            >
-              Отменить заказ
-            </button>
+            {order.state === "confirmed" && (
+              <button
+                className="button primary"
+                type="button"
+                disabled={busy}
+                onClick={() => void onTransition(order, "handover")}
+              >
+                {busy
+                  ? "Сохраняем…"
+                  : order.snapshot.fulfillment === "delivery"
+                    ? "Передать в доставку"
+                    : "Выдать клиенту"}
+              </button>
+            )}
+            {canCancel && (
+              <button
+                className="button secondary"
+                type="button"
+                disabled={busy}
+                onClick={() => void onTransition(order, "cancel")}
+              >
+                Отменить заказ
+              </button>
+            )}
+            {order.state === "in_progress" && (
+              <button
+                className="button primary"
+                type="button"
+                disabled={busy}
+                onClick={() => void onTransition(order, "return")}
+              >
+                {busy ? "Сохраняем…" : "Принять возврат"}
+              </button>
+            )}
+            {order.state === "returned" && (
+              <>
+                <button
+                  className="button primary"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void onTransition(order, "inspection", "passed")}
+                >
+                  Осмотр пройден
+                </button>
+                <button
+                  className="button secondary"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void onTransition(order, "inspection", "maintenance_required")}
+                >
+                  Нужен ремонт
+                </button>
+              </>
+            )}
           </div>
         )}
         {order.state === "held" && !order.identity_verified && (

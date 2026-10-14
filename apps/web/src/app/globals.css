@@ -344,9 +344,18 @@ h3 {
 }
 .status-published,
 .status-active,
-.status-confirmed {
+.status-confirmed,
+.status-completed {
   color: #285648;
   background: #dcefe5;
+}
+.status-in_progress {
+  color: #245f72;
+  background: #dceef3;
+}
+.status-returned {
+  color: #725317;
+  background: #fff0c8;
 }
 .status-archived,
 .status-inactive,
@@ -521,6 +530,36 @@ h3 {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 20px;
+}
+.admin-contact-access {
+  margin-top: 20px;
+  padding: 16px;
+  background: #f7f6f1;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.admin-contact-access > .small {
+  margin: 10px 0 0;
+  color: var(--muted);
+}
+.admin-contact-panel {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 16px 26px;
+}
+.admin-contact-panel > div {
+  display: grid;
+  gap: 4px;
+}
+.admin-contact-panel span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.admin-contact-panel a {
+  color: #245f72;
+  font-weight: 800;
 }
 .admin-empty-state {
   margin-top: 22px;

@@ -2,7 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { proxyStaffRequest } from "@/lib/admin-proxy";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const states = new Set(["held", "confirmed", "expired", "cancelled"]);
+const states = new Set([
+  "held",
+  "confirmed",
+  "in_progress",
+  "returned",
+  "completed",
+  "expired",
+  "cancelled",
+]);
 
 export async function GET(request: NextRequest) {
   const tenantId = request.nextUrl.searchParams.get("tenant_id");
