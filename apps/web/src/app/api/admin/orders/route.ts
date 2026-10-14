@@ -15,10 +15,17 @@ const states = new Set([
 export async function GET(request: NextRequest) {
   const tenantId = request.nextUrl.searchParams.get("tenant_id");
   const state = request.nextUrl.searchParams.get("state");
-  if (!tenantId || !uuidPattern.test(tenantId) || (state && !states.has(state))) {
+  const overdue = request.nextUrl.searchParams.get("overdue");
+  if (
+    !tenantId ||
+    !uuidPattern.test(tenantId) ||
+    (state && !states.has(state)) ||
+    (overdue && overdue !== "true")
+  ) {
     return NextResponse.json({ detail: "Invalid order queue request" }, { status: 400 });
   }
   const query = new URLSearchParams({ limit: "100", offset: "0" });
   if (state) query.set("state", state);
+  if (overdue) query.set("overdue", overdue);
   return proxyStaffRequest(`/api/v1/t/${tenantId}/orders?${query}`);
 }

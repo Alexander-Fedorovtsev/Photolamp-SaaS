@@ -357,6 +357,10 @@ h3 {
   color: #725317;
   background: #fff0c8;
 }
+.status-overdue {
+  color: #7a2923;
+  background: #f8ddd7;
+}
 .status-archived,
 .status-inactive,
 .status-expired,
@@ -530,6 +534,25 @@ h3 {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 20px;
+}
+.admin-request-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 16px;
+  background: #f7f6f1;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.admin-request-panel > div:first-child {
+  display: grid;
+  gap: 5px;
+}
+.admin-request-panel .admin-order-actions {
+  margin-top: 0;
 }
 .admin-contact-access {
   margin-top: 20px;

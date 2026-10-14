@@ -36,6 +36,11 @@ const orderFixture = {
       booking_enabled: false,
     },
   },
+  planned_end_date: "2030-01-12",
+  is_overdue: false,
+  overdue_days: 0,
+  extension_request: null,
+  return_request: null,
   identity_verified: true,
   payment_status: "not_started",
   expires_at: "2030-01-01T12:15:00+00:00",
@@ -119,6 +124,73 @@ test("staff can review and confirm an order from the tenant queue", async ({ pag
   await expect(page.getByText("Подтверждён", { exact: true })).toBeVisible();
 });
 
+test("staff can filter overdue rentals and approve an extension request", async ({ page }) => {
+  let currentOrder: AdminOrder = {
+    ...orderFixture,
+    state: "in_progress",
+    planned_end_date: "2030-01-12",
+    is_overdue: true,
+    overdue_days: 2,
+    expires_at: null,
+    confirmed_at: "2030-01-01T12:05:00+00:00",
+    confirmed_by_staff_user_id: "d5000000-0000-0000-0000-000000000001",
+    handed_over_at: "2030-01-10T09:00:00+00:00",
+    handed_over_by_staff_user_id: "d5000000-0000-0000-0000-000000000001",
+    extension_request: {
+      request_id: "d9100000-0000-0000-0000-000000000001",
+      state: "pending",
+      original_end_date: "2030-01-12",
+      requested_end_date: "2030-01-14",
+      additional_days: 2,
+      amount_minor: 98_000,
+      currency: "RUB",
+      requested_at: "2030-01-12T08:00:00+00:00",
+      decided_at: null,
+      rejection_reason: null,
+    },
+  };
+  let overdueFilterSeen = false;
+  await page.route(/\/api\/admin\/orders\?.*$/, async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("overdue") === "true") overdueFilterSeen = true;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ items: [currentOrder], total: 1, limit: 100, offset: 0 }),
+    });
+  });
+  await page.route(
+    /\/api\/admin\/orders\/[^/]+\/requests\/extension\/[^/]+\/approve\?.*$/,
+    async (route) => {
+      expect(route.request().headers()["idempotency-key"]).toMatch(/^admin-extension-approve-/);
+      const request = { ...currentOrder.extension_request!, state: "approved" as const };
+      currentOrder = {
+        ...currentOrder,
+        planned_end_date: request.requested_end_date,
+        is_overdue: false,
+        overdue_days: 0,
+        extension_request: request,
+      };
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ order: currentOrder, request, replayed: false }),
+      });
+    },
+  );
+  page.on("dialog", (dialog) => void dialog.accept());
+
+  await page.goto("/admin");
+  await page.getByRole("button", { name: "Войти в demo-панель" }).click();
+  await page.getByLabel("Статус", { exact: true }).selectOption("overdue");
+  await expect.poll(() => overdueFilterSeen).toBe(true);
+  await expect(page.getByText("Просрочен · 2 дн.", { exact: true })).toBeVisible();
+  await page.getByText("Синтетическая фотолампа", { exact: true }).click();
+  await expect(page.getByText("Продление до 14 янв. 2030 г.")).toBeVisible();
+  await page.getByRole("button", { name: "Проверить и одобрить" }).click();
+  await expect(
+    page.getByText("Продление одобрено, период аренды и резерв обновлены.", { exact: true }),
+  ).toBeVisible();
+});
+
 test("staff can create a synthetic phone order without an SMS integration", async ({ page }) => {
   let createdOrder: AdminOrder | null = null;
   await page.route(/\/api\/admin\/orders\?.*$/, async (route) => {
@@ -168,6 +240,7 @@ test("staff can create a synthetic phone order without an SMS integration", asyn
           end_date: body.end_date,
         },
       },
+      planned_end_date: body.end_date,
     };
     await route.fulfill({
       contentType: "application/json",

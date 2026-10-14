@@ -32,6 +32,14 @@ from app.customer_auth import (
 from app.database import Database, create_engine
 from app.health import Readiness, check_readiness
 from app.holds import ReleasedHold, RentalHold, create_hold, release_hold
+from app.order_requests import (
+    ExtensionRequestCommand,
+    ExtensionRequestResult,
+    ReturnRequestCommand,
+    ReturnRequestResult,
+    create_extension_request,
+    create_return_request,
+)
 from app.orders import (
     CustomerOrder,
     CustomerOrderPage,
@@ -96,7 +104,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "create phone orders with tenant-scoped encrypted contacts; demo tenants accept "
             "only a fixed synthetic contact and do not send SMS. Fulfillment commands cover "
             "handover, return and inspection; contact decryption is separately authorized and "
-            "audited."
+            "audited. Active customers can request extensions and returns; staff decisions "
+            "remain availability-safe. SMS notification jobs fail closed while the provider "
+            "is disabled."
         ),
     )
     application.include_router(admin_router)
@@ -374,6 +384,76 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             db,
             tenant_slug,
             order_id,
+            digest,
+            allow_demo=config.enable_demo_previews,
+        )
+
+    @application.post(
+        "/api/v1/r/{tenant_slug}/me/orders/{order_id}/extension-requests",
+        tags=["customer orders"],
+        response_model=ExtensionRequestResult,
+        status_code=201,
+    )
+    async def public_customer_extension_request(
+        tenant_slug: str,
+        order_id: UUID,
+        command: ExtensionRequestCommand,
+        request: Request,
+        response: Response,
+        digest: Annotated[bytes, Depends(customer_session_digest)],
+        db: Annotated[Database, Depends(database)],
+        idempotency_key: Annotated[
+            str, Header(alias="Idempotency-Key", min_length=16, max_length=128)
+        ],
+    ) -> ExtensionRequestResult:
+        response.headers["Cache-Control"] = "no-store"
+        await enforce_rate_limit(
+            request.app.state.redis,
+            f"customer-mutation:{tenant_slug}:{digest.hex()}",
+            limit=config.checkout_mutation_rate_limit,
+            window_seconds=config.checkout_rate_limit_window_seconds,
+        )
+        return await create_extension_request(
+            db,
+            tenant_slug,
+            order_id,
+            command,
+            idempotency_key,
+            digest,
+            allow_demo=config.enable_demo_previews,
+        )
+
+    @application.post(
+        "/api/v1/r/{tenant_slug}/me/orders/{order_id}/pickup-requests",
+        tags=["customer orders"],
+        response_model=ReturnRequestResult,
+        status_code=201,
+    )
+    async def public_customer_return_request(
+        tenant_slug: str,
+        order_id: UUID,
+        command: ReturnRequestCommand,
+        request: Request,
+        response: Response,
+        digest: Annotated[bytes, Depends(customer_session_digest)],
+        db: Annotated[Database, Depends(database)],
+        idempotency_key: Annotated[
+            str, Header(alias="Idempotency-Key", min_length=16, max_length=128)
+        ],
+    ) -> ReturnRequestResult:
+        response.headers["Cache-Control"] = "no-store"
+        await enforce_rate_limit(
+            request.app.state.redis,
+            f"customer-mutation:{tenant_slug}:{digest.hex()}",
+            limit=config.checkout_mutation_rate_limit,
+            window_seconds=config.checkout_rate_limit_window_seconds,
+        )
+        return await create_return_request(
+            db,
+            tenant_slug,
+            order_id,
+            command,
+            idempotency_key,
             digest,
             allow_demo=config.enable_demo_previews,
         )
