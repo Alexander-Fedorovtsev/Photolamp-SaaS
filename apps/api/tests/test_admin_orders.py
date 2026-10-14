@@ -182,8 +182,8 @@ async def test_staff_order_queue_snapshot_and_idempotent_transitions() -> None:
                     await connection.execute(
                         text(
                             "INSERT INTO customers "
-                            "(id, tenant_id, phone_lookup_hash, phone_last4) VALUES "
-                            "(:id, :tenant_id, :phone_hash, '0001')"
+                            "(id, tenant_id, phone_lookup_hash, phone_last4, phone_verified_at) "
+                            "VALUES (:id, :tenant_id, :phone_hash, '0001', now())"
                         ),
                         {
                             "id": customer_id,

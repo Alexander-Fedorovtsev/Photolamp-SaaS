@@ -16,7 +16,7 @@ from app.holds import expire_holds
 from app.orders import OrderSnapshot
 
 OrderState = Literal["held", "confirmed", "expired", "cancelled"]
-OrderSource = Literal["website"]
+OrderSource = Literal["website", "phone"]
 
 
 class StaffOrder(BaseModel):
@@ -30,7 +30,7 @@ class StaffOrder(BaseModel):
     snapshot: OrderSnapshot
     identity_verified: bool
     payment_status: Literal["not_started"] = "not_started"
-    expires_at: datetime
+    expires_at: datetime | None
     confirmed_at: datetime | None
     confirmed_by_staff_user_id: UUID | None
     created_at: datetime
@@ -77,7 +77,7 @@ def _staff_order_from_row(row: object) -> StaffOrder:
         state=mapping["state"],
         source=mapping["source"],
         snapshot=OrderSnapshot.model_validate(mapping["order_snapshot"]),
-        identity_verified=mapping["customer_id"] is not None,
+        identity_verified=mapping["phone_verified_at"] is not None,
         expires_at=mapping["expires_at"],
         confirmed_at=mapping["confirmed_at"],
         confirmed_by_staff_user_id=mapping["confirmed_by_staff_user_id"],
@@ -111,9 +111,11 @@ async def list_staff_orders(
     rows: Sequence[object] = (
         await transaction.session.execute(
             text(
-                "SELECT * FROM orders WHERE tenant_id = :tenant_id "
-                "AND (CAST(:state AS text) IS NULL OR state = CAST(:state AS text)) "
-                "ORDER BY created_at DESC, id DESC LIMIT :limit OFFSET :offset"
+                "SELECT o.*, c.phone_verified_at FROM orders o LEFT JOIN customers c "
+                "ON c.tenant_id = o.tenant_id AND c.id = o.customer_id "
+                "WHERE o.tenant_id = :tenant_id "
+                "AND (CAST(:state AS text) IS NULL OR o.state = CAST(:state AS text)) "
+                "ORDER BY o.created_at DESC, o.id DESC LIMIT :limit OFFSET :offset"
             ),
             parameters,
         )
@@ -131,7 +133,11 @@ async def load_staff_order(transaction: TenantTransaction, order_id: UUID) -> St
     await expire_holds(transaction)
     row = (
         await transaction.session.execute(
-            text("SELECT * FROM orders WHERE tenant_id = :tenant_id AND id = :order_id"),
+            text(
+                "SELECT o.*, c.phone_verified_at FROM orders o LEFT JOIN customers c "
+                "ON c.tenant_id = o.tenant_id AND c.id = o.customer_id "
+                "WHERE o.tenant_id = :tenant_id AND o.id = :order_id"
+            ),
             {"tenant_id": transaction.tenant_id, "order_id": order_id},
         )
     ).one_or_none()
@@ -177,7 +183,11 @@ async def _transition_order(
 
     order = (
         await transaction.session.execute(
-            text("SELECT * FROM orders WHERE tenant_id = :tenant_id AND id = :order_id FOR UPDATE"),
+            text(
+                "SELECT o.*, c.phone_verified_at FROM orders o LEFT JOIN customers c "
+                "ON c.tenant_id = o.tenant_id AND c.id = o.customer_id "
+                "WHERE o.tenant_id = :tenant_id AND o.id = :order_id FOR UPDATE OF o"
+            ),
             {"tenant_id": transaction.tenant_id, "order_id": order_id},
         )
     ).one_or_none()
@@ -187,7 +197,7 @@ async def _transition_order(
     if target == "confirmed":
         if order.state != "held":
             raise OrderTransitionConflict("Only an active held order can be confirmed")
-        if order.customer_id is None:
+        if order.phone_verified_at is None:
             raise OrderTransitionConflict("Verified customer identity is required")
         allocation_id = await transaction.session.scalar(
             text(

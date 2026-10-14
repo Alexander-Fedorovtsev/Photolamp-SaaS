@@ -369,6 +369,68 @@ h3 {
   font-size: 13px;
   font-weight: 700;
 }
+.admin-phone-order {
+  margin-top: 24px;
+  padding: 22px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+}
+.admin-phone-order > summary {
+  width: fit-content;
+  cursor: pointer;
+  list-style: none;
+}
+.admin-phone-order > summary::-webkit-details-marker {
+  display: none;
+}
+.admin-phone-order form {
+  margin-top: 24px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+.admin-phone-order-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.admin-phone-order-heading h3,
+.admin-phone-order-heading p {
+  margin: 0;
+}
+.admin-phone-order-heading p {
+  margin-top: 6px;
+  color: var(--muted);
+}
+.admin-phone-order-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin: 22px 0;
+}
+.admin-phone-order-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+.admin-phone-order-grid input,
+.admin-phone-order-grid select {
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 12px;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid #c8cec7;
+  border-radius: 12px;
+  font: inherit;
+}
+.admin-phone-order-grid input[readonly] {
+  background: #f7f6f1;
+}
 .admin-order-list {
   display: grid;
   gap: 12px;
@@ -587,6 +649,15 @@ h3 {
     width: 100%;
     align-items: stretch;
     flex-direction: column;
+  }
+  .admin-phone-order {
+    padding: 18px;
+  }
+  .admin-phone-order-heading {
+    flex-direction: column;
+  }
+  .admin-phone-order-grid {
+    grid-template-columns: 1fr;
   }
   .admin-metrics {
     grid-template-columns: repeat(2, 1fr);

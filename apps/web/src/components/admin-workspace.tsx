@@ -270,6 +270,7 @@ export function AdminWorkspace() {
             <AdminOrders
               tenantId={tenantId}
               timeZone={currentTenant?.timezone ?? "UTC"}
+              catalog={catalog}
               onUnauthorized={clearSession}
             />
 

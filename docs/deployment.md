@@ -4,8 +4,9 @@
 PR → CI → merge в main → успешный CI push run → GitHub Actions → SSH →
 точный checkout → staging Compose → HTTPS/readiness/версия.
 
-Это staging с искусственными данными. Basic Auth защищает весь сайт. Заказы,
-SMS и платежи отключены. Production-режим API по-прежнему запрещает demo previews.
+Это staging с искусственными данными. Basic Auth защищает весь сайт. Публичное
+оформление, SMS и платежи отключены. В staff-панели можно создать заказ только на
+фиксированный синтетический контакт. Production-режим API запрещает demo previews.
 
 ## 1. DNS и существующий Traefik
 
@@ -72,6 +73,12 @@ nano .env
 - `PHOTOLAMP_HEALTHCHECK_USER`: тот же username, который указали helper.
 - `PHOTOLAMP_HEALTHCHECK_PASSWORD`: тот же пароль, в одинарных кавычках.
 - `TRAEFIK_CERT_RESOLVER=myresolver` либо фактическое имя resolver SelfOS.
+
+`CONTACT_ENCRYPTION_KEY` и `OTP_PEPPER` пока можно не добавлять: staging API
+разрешает только жёстко заданный синтетический контакт и использует явно
+документированные demo-значения. До приёма реальных контактов добавьте в `.env`
+уникальные значения по инструкции из `docs/development.md`, затем проведите
+отдельную проверку ротации и резервного восстановления ключа.
 
 Файл принадлежит `photolamp-deploy`, mode 600. Реальные значения остаются только
 на сервере, не в репозитории или чате. `PHOTOLAMP_DEPLOY_SHA` туда не записывайте:
@@ -176,6 +183,10 @@ Workflow подключается по SSH, проверяет origin и чис�
 содержит документированный placeholder. Значение не печатается. Затем bootstrap
 создаёт/обновляет `photolamp_runtime`; owner credentials получает только migration
 контейнер, API работает под runtime-ролью без DDL и `BYPASSRLS`.
+
+Миграция телефонных заказов создаёт только forward-compatible таблицы и поля.
+CD не печатает ключи. Контактные ciphertext доступны runtime-роли только внутри
+tenant RLS-транзакции; staff-очередь не возвращает телефон, имя или адрес.
 
 Деплой проверяет конфигурацию, отсутствие published ports, isolated network,
 bcrypt и credentials, собирает образы с SHA, применяет forward migration и

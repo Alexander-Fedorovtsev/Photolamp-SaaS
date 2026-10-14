@@ -3,7 +3,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 
 from app.admin_orders import (
     OrderNotFound,
@@ -19,6 +19,7 @@ from app.admin_orders import (
     load_staff_order,
 )
 from app.database import TenantTransaction
+from app.phone_orders import PhoneOrderRequest, create_phone_order
 from app.tenancy import authorized_tenant_transaction
 
 router = APIRouter(prefix="/api/v1/t/{tenant_id}/orders", tags=["tenant orders"])
@@ -47,6 +48,27 @@ async def staff_orders(
     try:
         return await list_staff_orders(transaction, state=state, limit=limit, offset=offset)
     except OrderPermissionDenied as error:
+        raise translate_order_error(error) from None
+
+
+@router.post("/phone", response_model=OrderTransitionResult, status_code=201)
+async def staff_phone_order(
+    command: PhoneOrderRequest,
+    request: Request,
+    response: Response,
+    transaction: Transaction,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=16, max_length=128)],
+) -> OrderTransitionResult:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await create_phone_order(
+            transaction,
+            command,
+            idempotency_key,
+            pepper=request.app.state.config.otp_pepper.get_secret_value(),
+            cipher=request.app.state.contact_cipher,
+        )
+    except (OrderPermissionDenied, OrderTransitionConflict) as error:
         raise translate_order_error(error) from None
 
 

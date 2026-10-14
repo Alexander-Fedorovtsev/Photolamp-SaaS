@@ -8,7 +8,12 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
-from app.database import Database, PublicStorefrontNotFound, PublicTenantTransaction
+from app.database import (
+    Database,
+    PublicStorefrontNotFound,
+    PublicTenantTransaction,
+    TenantTransaction,
+)
 
 Fulfillment = Literal["pickup", "delivery"]
 
@@ -71,7 +76,7 @@ def _rental_days(start_date: date, end_date: date) -> int:
 
 
 async def load_quote_context(
-    transaction: PublicTenantTransaction, request: QuoteRequest
+    transaction: PublicTenantTransaction | TenantTransaction, request: QuoteRequest
 ) -> tuple[dict[str, object], int]:
     days = _rental_days(request.start_date, request.end_date)
     row = (

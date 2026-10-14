@@ -1,3 +1,5 @@
+import base64
+import binascii
 from typing import Literal
 
 from pydantic import Field, SecretStr, model_validator
@@ -27,6 +29,7 @@ class Settings(BaseSettings):
     checkout_mutation_rate_limit: int = Field(default=10, ge=1, le=100)
     sms_provider_mode: Literal["disabled", "memory"] = "disabled"
     otp_pepper: SecretStr = SecretStr("local-synthetic-otp-pepper-change-me")
+    contact_encryption_key: SecretStr = SecretStr("cGhvdG9sYW1wLWxvY2FsLXN5bnRoZXRpYy1rZXktdjE=")
     otp_ttl_seconds: int = Field(default=300, ge=120, le=600)
     otp_max_attempts: int = Field(default=5, ge=3, le=10)
     otp_request_rate_limit: int = Field(default=3, ge=1, le=20)
@@ -49,6 +52,13 @@ class Settings(BaseSettings):
         if self.app_env == "production":
             if self.enable_demo_previews:
                 raise ValueError("Demo previews must be disabled in production")
+            if (
+                self.contact_encryption_key.get_secret_value()
+                == "cGhvdG9sYW1wLWxvY2FsLXN5bnRoZXRpYy1rZXktdjE="
+            ):
+                raise ValueError("Configure a production contact encryption key")
+            if self.otp_pepper.get_secret_value() == "local-synthetic-otp-pepper-change-me":
+                raise ValueError("Configure a production phone lookup pepper")
         if self.sms_provider_mode == "memory" and self.app_env not in {"development", "test"}:
             raise ValueError("The memory SMS provider is allowed only in development and tests")
         if (
@@ -57,6 +67,14 @@ class Settings(BaseSettings):
             and self.otp_pepper.get_secret_value() == "local-synthetic-otp-pepper-change-me"
         ):
             raise ValueError("Configure a non-development OTP pepper")
+        try:
+            contact_key = base64.urlsafe_b64decode(
+                self.contact_encryption_key.get_secret_value().encode()
+            )
+        except (binascii.Error, ValueError) as error:
+            raise ValueError("CONTACT_ENCRYPTION_KEY must be URL-safe base64") from error
+        if len(contact_key) != 32:
+            raise ValueError("CONTACT_ENCRYPTION_KEY must decode to exactly 32 bytes")
         return self
 
     def migration_database_url(self) -> str:
