@@ -81,6 +81,21 @@ services:
       internal:
         aliases: [photolamp-test-backend]
 
+  backup-crypto:
+    profiles: [maintenance]
+    image: photolamp-test-api:${PHOTOLAMP_DEPLOY_SHA:?An exact CI-tested SHA is required}
+    build: *api-build
+    entrypoint: ["python", "-m", "app.backup_archive"]
+    command: ["inspect"]
+    environment:
+      BACKUP_ACTIVE_KEY_ID: ${BACKUP_ACTIVE_KEY_ID:?Configure a backup active key ID}
+      BACKUP_ENCRYPTION_KEYS: ${BACKUP_ENCRYPTION_KEYS:?Configure a versioned backup keyring}
+    network_mode: none
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
   web:
     environment:
       APP_ENV: staging

@@ -44,3 +44,5 @@ fi
 git checkout --detach "$deploy_sha"
 [[ "$(git rev-parse HEAD)" == "$deploy_sha" ]] || fail 'Checkout does not match approved revision'
 PHOTOLAMP_DEPLOY_SHA="$deploy_sha" bash infra/scripts/deploy.sh
+PHOTOLAMP_DEPLOY_SHA="$deploy_sha" PHOTOLAMP_MAINTENANCE_LOCK_HELD=true \
+  bash infra/scripts/backup-database.sh

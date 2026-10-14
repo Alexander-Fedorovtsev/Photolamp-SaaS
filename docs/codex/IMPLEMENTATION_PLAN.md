@@ -281,5 +281,11 @@ User-Agent и fingerprint. Можно атомарно отозвать отде
 50.x-линии, а frontend выставляет CSP/HSTS/COOP/CORP. Все изменяющие admin BFF
 запросы требуют совпадающий Origin, staff cookie всегда Secure в staging и
 production, staging topology проверяет явный environment. SMS остаётся отключённым.
-До реального пилота по-прежнему обязательны backup/restore drill, ротация ключей,
-retention, наблюдаемость, legal gate и отдельный production-контур.
+Добавлен staging baseline сохранности данных: PostgreSQL custom dump шифруется
+AES-256-GCM отдельным версионированным keyring, атомарно сохраняется на RAID и
+считается успешным только после реального восстановления в одноразовую БД с
+проверкой схемы и RLS. CD запускает drill после релиза, отдельный workflow —
+ежедневно; retention составляет 30 дней/35 архивов. Ротация backup-ключа сохраняет
+чтение старых архивов. До реального пилота по-прежнему обязательны off-host
+immutable backup, внешний restore drill, ротация contact key, наблюдаемость,
+legal gate и отдельный production-контур.
