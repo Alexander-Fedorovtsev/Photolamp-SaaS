@@ -1,6 +1,5 @@
 """Tenant-scoped staff catalog commands and read model."""
 
-import json
 from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
@@ -8,6 +7,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
+from app.audit import record_audit
 from app.database import TenantTransaction
 
 StaffRole = Literal["owner", "admin", "operator", "courier"]
@@ -227,32 +227,6 @@ async def load_admin_catalog(transaction: TenantTransaction) -> CatalogAdminSnap
     )
 
 
-async def _audit(
-    transaction: TenantTransaction,
-    action: str,
-    entity_type: str,
-    entity_id: UUID,
-    changes: dict[str, object],
-) -> None:
-    await transaction.session.execute(
-        text(
-            "INSERT INTO audit_events "
-            "(id, tenant_id, actor_user_id, action, entity_type, entity_id, changes) "
-            "VALUES (:id, :tenant_id, :actor_user_id, :action, :entity_type, "
-            ":entity_id, CAST(:changes AS jsonb))"
-        ),
-        {
-            "id": uuid4(),
-            "tenant_id": transaction.tenant_id,
-            "actor_user_id": transaction.user_id,
-            "action": action,
-            "entity_type": entity_type,
-            "entity_id": entity_id,
-            "changes": json.dumps(changes, default=str, ensure_ascii=False),
-        },
-    )
-
-
 async def create_branch(transaction: TenantTransaction, command: BranchCreate) -> UUID:
     require_catalog_editor(transaction)
     entity_id = uuid4()
@@ -265,7 +239,7 @@ async def create_branch(transaction: TenantTransaction, command: BranchCreate) -
         ),
         {"id": entity_id, "tenant_id": transaction.tenant_id, **values},
     )
-    await _audit(transaction, "branch.created", "branch", entity_id, values)
+    await record_audit(transaction, "branch.created", "branch", entity_id, values)
     return entity_id
 
 
@@ -282,7 +256,7 @@ async def create_model(transaction: TenantTransaction, command: ModelCreate) -> 
         ),
         {"id": entity_id, "tenant_id": transaction.tenant_id, **values},
     )
-    await _audit(transaction, "model.created", "equipment_model", entity_id, values)
+    await record_audit(transaction, "model.created", "equipment_model", entity_id, values)
     return entity_id
 
 
@@ -298,7 +272,7 @@ async def create_asset(transaction: TenantTransaction, command: AssetCreate) -> 
         ),
         {"id": entity_id, "tenant_id": transaction.tenant_id, **values},
     )
-    await _audit(transaction, "asset.created", "asset", entity_id, values)
+    await record_audit(transaction, "asset.created", "asset", entity_id, values)
     return entity_id
 
 
@@ -318,7 +292,7 @@ async def create_pricing(transaction: TenantTransaction, command: PricingCreate)
         ),
         {"id": entity_id, "tenant_id": transaction.tenant_id, **values},
     )
-    await _audit(transaction, "pricing.created", "pricing_rule", entity_id, values)
+    await record_audit(transaction, "pricing.created", "pricing_rule", entity_id, values)
     return entity_id
 
 
@@ -346,7 +320,7 @@ async def create_asset_block(
     )
     if result.scalar_one_or_none() is None:
         raise CatalogEntityNotFound
-    await _audit(transaction, "asset_block.created", "asset_block", entity_id, values)
+    await record_audit(transaction, "asset_block.created", "asset_block", entity_id, values)
     return entity_id
 
 
@@ -358,7 +332,7 @@ async def delete_asset_block(transaction: TenantTransaction, entity_id: UUID) ->
     )
     if result.scalar_one_or_none() is None:
         raise CatalogEntityNotFound
-    await _audit(transaction, "asset_block.deleted", "asset_block", entity_id, {})
+    await record_audit(transaction, "asset_block.deleted", "asset_block", entity_id, {})
 
 
 async def _patch_entity(
@@ -384,7 +358,7 @@ async def _patch_entity(
     )
     if result.scalar_one_or_none() is None:
         raise CatalogEntityNotFound
-    await _audit(transaction, f"{entity_type}.updated", entity_type, entity_id, changes)
+    await record_audit(transaction, f"{entity_type}.updated", entity_type, entity_id, changes)
 
 
 async def patch_branch(

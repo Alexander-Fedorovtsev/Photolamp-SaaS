@@ -251,6 +251,26 @@ export const operationsDashboardSchema = z
   })
   .strict();
 
+export const staffMemberSchema = z
+  .object({
+    user_id: uuidSchema,
+    display_name: z.string().min(1).max(120),
+    role: z.enum(["owner", "admin", "operator", "courier"]),
+    state: z.enum(["invited", "active", "disabled"]),
+    is_current_user: z.boolean(),
+    created_at: isoDateTimeSchema,
+    updated_at: isoDateTimeSchema,
+  })
+  .strict();
+
+export const teamSnapshotSchema = z
+  .object({
+    tenant_id: uuidSchema,
+    can_manage: z.boolean(),
+    members: z.array(staffMemberSchema),
+  })
+  .strict();
+
 export type Membership = z.infer<typeof membershipSchema>;
 export type AdminCatalog = z.infer<typeof adminCatalogSchema>;
 export type AdminOrder = z.infer<typeof adminOrderSchema>;
@@ -259,3 +279,5 @@ export type AdminOrderState = z.infer<typeof adminOrderStateSchema>;
 export type AdminOrderContact = z.infer<typeof adminOrderContactAccessSchema>["contact"];
 export type OperationsDashboard = z.infer<typeof operationsDashboardSchema>;
 export type DashboardOrder = z.infer<typeof dashboardOrderSchema>;
+export type StaffMember = z.infer<typeof staffMemberSchema>;
+export type TeamSnapshot = z.infer<typeof teamSnapshotSchema>;

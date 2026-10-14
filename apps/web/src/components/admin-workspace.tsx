@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { AdminOrders } from "@/components/admin-orders";
 import type { OrderFilter } from "@/components/admin-orders";
 import { AdminDashboard } from "@/components/admin-dashboard";
+import { AdminTeam } from "@/components/admin-team";
 import {
   adminCatalogSchema,
   membershipSchema,
@@ -280,6 +281,10 @@ export function AdminWorkspace() {
               initialFilter={orderTarget.filter}
               onChanged={refreshDashboard}
             />
+
+            {(currentTenant?.role === "owner" || currentTenant?.role === "admin") && (
+              <AdminTeam tenantId={tenantId} onUnauthorized={clearSession} />
+            )}
 
             <ModelSection catalog={catalog} busy={busy} mutate={mutate} />
             <AssetSection catalog={catalog} busy={busy} mutate={mutate} />

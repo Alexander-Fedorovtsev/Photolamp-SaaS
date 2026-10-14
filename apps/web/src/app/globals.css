@@ -529,6 +529,76 @@ h3 {
   color: #725317;
   background: #fff0c8;
 }
+.status-invited {
+  color: #245f72;
+  background: #dceef3;
+}
+.status-disabled {
+  color: #695c58;
+  background: #eee8e4;
+}
+.admin-team-boundary {
+  margin: 24px 0 0;
+  padding: 16px 18px;
+  color: #5a5149;
+  background: #f5eee3;
+  border: 1px solid #e5d7c5;
+  border-radius: 16px;
+}
+.admin-team-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 22px;
+}
+.admin-team-list article {
+  padding: 22px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+}
+.admin-team-list article.is-disabled {
+  background: #f5f3ef;
+}
+.admin-team-member-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.admin-team-member-heading h3 {
+  margin: 12px 0 4px;
+}
+.admin-team-member-heading p,
+.admin-team-readonly {
+  margin: 0;
+  color: var(--muted);
+}
+.admin-team-id {
+  color: var(--muted);
+  font-size: 12px;
+}
+.admin-team-list form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.5fr) minmax(150px, 1fr) minmax(140px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.admin-team-list form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+.admin-team-readonly {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
 .admin-order-toolbar {
   display: flex;
   align-items: center;
@@ -893,6 +963,13 @@ h3 {
   .dashboard-inventory,
   .dashboard-inventory dl {
     align-items: flex-start;
+    flex-direction: column;
+  }
+  .admin-team-list form {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  .admin-team-member-heading {
     flex-direction: column;
   }
   .dashboard-inventory dl {

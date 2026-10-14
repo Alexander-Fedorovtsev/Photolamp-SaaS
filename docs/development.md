@@ -176,6 +176,8 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 | API `POST /api/v1/r/{slug}/me/orders/{id}/pickup-requests` | Идемпотентный запрос даты возврата только владельцем активного заказа |
 | API `GET /api/v1/t/{tenant_id}/orders` | Tenant-scoped очередь owner/admin/operator без открытых контактов |
 | API `GET /api/v1/t/{tenant_id}/dashboard` | Privacy-safe сводка owner/admin/operator по срокам филиалов, запросам и состоянию парка |
+| API `GET /api/v1/t/{tenant_id}/team` | Privacy-safe список memberships для owner/admin без телефонов и session data |
+| API `PATCH /api/v1/t/{tenant_id}/team/{user_id}` | Owner-only изменение роли/состояния/подписи с аудитом и защитой active owner |
 | API `POST /api/v1/t/{tenant_id}/orders/phone` | Атомарный подтверждённый заказ оператора; контакты и адрес шифруются, demo принимает только фиксированный synthetic contact |
 | API `POST /api/v1/t/{tenant_id}/orders/{id}/{confirm,cancel}` | Idempotent staff-переход с actor audit и синхронным состоянием allocation |
 | API `POST /api/v1/t/{tenant_id}/orders/{id}/extension-requests/{request_id}/{approve,reject}` | Staff-решение с повторной проверкой availability и сохранением исходного snapshot |
@@ -202,5 +204,6 @@ Encrypted phone orders: `architecture/adr-0011-encrypted-phone-orders.md`.
 Fulfillment lifecycle: `architecture/adr-0012-order-fulfillment.md`.
 Extensions, overdue and notification outbox: `architecture/adr-0013-order-requests-notifications.md`.
 Tenant operations dashboard: `architecture/adr-0014-operations-dashboard.md`.
+Tenant staff directory and role controls: `architecture/adr-0015-tenant-staff-access.md`.
 Реализованный landing: `product/landing-foundation.md`.
 Публикация staging и GitHub CD: `deployment.md`.

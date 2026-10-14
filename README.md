@@ -71,7 +71,8 @@ API/OpenAPI: <http://localhost:8000/docs>.
 проводить заказ через выдачу, возврат и осмотр, отдельно открывать зашифрованный
 контакт с записью события доступа, обрабатывать запросы продления и возврата,
 видеть вычисляемую просрочку и сводку дня по выдачам, возвратам, запросам и парку,
-а также управлять филиалами, моделями,
+управлять текущей командой и tenant-ролями без раскрытия контактов, а также
+филиалами, моделями,
 физическими приборами и тарифами; изменения
 аудируются и отражаются на demo-витрине. API умеет создать анонимную checkout capability,
 атомарный hold, истекающий draft order и local/test OTP identity без plaintext
@@ -97,6 +98,7 @@ API/OpenAPI: <http://localhost:8000/docs>.
 - [Выдача, возврат, осмотр и контролируемый доступ к контакту](docs/architecture/adr-0012-order-fulfillment.md)
 - [Продления, просрочки, возврат и fail-closed уведомления](docs/architecture/adr-0013-order-requests-notifications.md)
 - [Операционная сводка владельца](docs/architecture/adr-0014-operations-dashboard.md)
+- [Команда tenant и управление ролями](docs/architecture/adr-0015-tenant-staff-access.md)
 - [Реализованный landing и витрина](docs/product/landing-foundation.md)
 - [Демо photolamp-test.anliwei.pro и настройка Continuous Deployment](docs/deployment.md)
 
