@@ -114,7 +114,7 @@ export function AdminWorkspace() {
     }
   }, [loadCatalog, session, tenantId]);
 
-  async function login() {
+  async function demoLogin() {
     setBusy(true);
     setNotice("");
     try {
@@ -122,6 +122,27 @@ export function AdminWorkspace() {
       await loadSession();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Демо-вход недоступен");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function staffLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    setBusy(true);
+    setNotice("");
+    try {
+      await apiRequest("/api/admin/session/login", {
+        method: "POST",
+        body: JSON.stringify({
+          login_name: data.get("login_name"),
+          password: data.get("password"),
+        }),
+      });
+      await loadSession();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Не удалось войти");
     } finally {
       setBusy(false);
     }
@@ -181,22 +202,52 @@ export function AdminWorkspace() {
         </header>
         <main id="main-content" className="admin-login-card">
           <p className="eyebrow">Панель арендодателя</p>
-          <h1>Управляйте каталогом без работы с базой.</h1>
+          <h1>Вход в рабочее пространство.</h1>
           <p className="lead">
-            В этой версии доступен изолированный demo-кабинет: очередь заказов, филиалы, модели,
-            экземпляры и тарифы. Все данные синтетические.
+            Сотрудники, принявшие приглашение владельца, входят по выбранному логину и паролю.
           </p>
+          <form className="admin-auth-form" onSubmit={(event) => void staffLogin(event)}>
+            <label>
+              Логин
+              <input
+                name="login_name"
+                required
+                minLength={4}
+                maxLength={32}
+                autoCapitalize="none"
+                autoCorrect="off"
+                autoComplete="username"
+              />
+            </label>
+            <label>
+              Пароль
+              <input
+                name="password"
+                type="password"
+                required
+                minLength={12}
+                maxLength={128}
+                autoComplete="current-password"
+              />
+            </label>
+            <button className="button primary" type="submit" disabled={busy}>
+              {busy ? "Проверяем…" : "Войти"}
+            </button>
+          </form>
+          <div className="admin-login-divider" role="separator">
+            <span>или</span>
+          </div>
           <button
-            className="button primary"
+            className="button secondary"
             type="button"
-            onClick={() => void login()}
+            onClick={() => void demoLogin()}
             disabled={busy}
           >
             {busy ? "Открываем…" : "Войти в demo-панель"}
           </button>
           <p className="admin-security-note">
-            Настоящие SMS, телефоны сотрудников и клиентские данные не используются. Demo-вход
-            отключается в production.
+            Пароли хранятся только как scrypt-хеши. SMS, восстановление доступа и MFA пока не
+            подключены. Demo-вход использует синтетические данные и отключается в production.
           </p>
           {notice && (
             <p className="admin-alert" role="alert">

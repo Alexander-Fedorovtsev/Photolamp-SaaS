@@ -1,9 +1,10 @@
 """Tenant-scoped staff directory and least-privilege role administration."""
 
 import hashlib
-from datetime import datetime
+import secrets
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import text
@@ -33,6 +34,47 @@ class TeamSnapshot(BaseModel):
     tenant_id: UUID
     can_manage: bool
     members: list[StaffMember]
+
+
+class StaffInvitationCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: Annotated[str, Field(min_length=1, max_length=120)]
+    role: StaffRole
+
+    @field_validator("display_name")
+    @classmethod
+    def normalize_display_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("display_name must not be blank")
+        return normalized
+
+
+class StaffInvitationCreated(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    invitation_id: UUID
+    invitation_token: str
+    expires_at: datetime
+    member: StaffMember
+
+
+class StaffInvitationSummary(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    invitation_id: UUID
+    user_id: UUID
+    state: Literal["pending", "expired", "accepted", "revoked"]
+    expires_at: datetime
+    created_at: datetime
+
+
+class StaffInvitationRevoked(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    invitation_id: UUID
+    revoked: bool = True
 
 
 class StaffMemberPatch(BaseModel):
@@ -94,6 +136,28 @@ def _staff_member(row: object, current_user_id: UUID) -> StaffMember:
     )
 
 
+async def _lock_active_owner(transaction: TenantTransaction) -> None:
+    lock_key = int.from_bytes(
+        hashlib.sha256(b"tenant-team" + transaction.tenant_id.bytes).digest()[:8],
+        "big",
+        signed=True,
+    )
+    await transaction.session.execute(
+        text("SELECT pg_advisory_xact_lock(:lock_key)"), {"lock_key": lock_key}
+    )
+    actor = (
+        await transaction.session.execute(
+            text(
+                "SELECT role, state FROM tenant_memberships "
+                "WHERE tenant_id = :tenant_id AND user_id = :user_id FOR UPDATE"
+            ),
+            {"tenant_id": transaction.tenant_id, "user_id": transaction.user_id},
+        )
+    ).one_or_none()
+    if actor is None or actor.role != "owner" or actor.state != "active":
+        raise TeamPermissionDenied("Owner role required")
+
+
 async def load_team(transaction: TenantTransaction) -> TeamSnapshot:
     require_team_reader(transaction)
     rows = (
@@ -119,25 +183,7 @@ async def patch_staff_member(
     transaction: TenantTransaction, user_id: UUID, command: StaffMemberPatch
 ) -> StaffMember:
     require_team_manager(transaction)
-    lock_key = int.from_bytes(
-        hashlib.sha256(b"tenant-team" + transaction.tenant_id.bytes).digest()[:8],
-        "big",
-        signed=True,
-    )
-    await transaction.session.execute(
-        text("SELECT pg_advisory_xact_lock(:lock_key)"), {"lock_key": lock_key}
-    )
-    actor = (
-        await transaction.session.execute(
-            text(
-                "SELECT role, state FROM tenant_memberships "
-                "WHERE tenant_id = :tenant_id AND user_id = :user_id FOR UPDATE"
-            ),
-            {"tenant_id": transaction.tenant_id, "user_id": transaction.user_id},
-        )
-    ).one_or_none()
-    if actor is None or actor.role != "owner" or actor.state != "active":
-        raise TeamPermissionDenied("Owner role required")
+    await _lock_active_owner(transaction)
     row = (
         await transaction.session.execute(
             text(
@@ -211,3 +257,123 @@ async def patch_staff_member(
         {"before": before, "after": next_values},
     )
     return _staff_member(updated, transaction.user_id)
+
+
+async def create_staff_invitation(
+    transaction: TenantTransaction,
+    command: StaffInvitationCreate,
+    *,
+    ttl_seconds: int,
+) -> StaffInvitationCreated:
+    require_team_manager(transaction)
+    await _lock_active_owner(transaction)
+    invitation_id = uuid4()
+    user_id = uuid4()
+    token = f"pli_{secrets.token_urlsafe(32)}"
+    token_hash = hashlib.sha256(token.encode()).digest()
+    expires_at = datetime.now(UTC) + timedelta(seconds=ttl_seconds)
+    await transaction.session.execute(
+        text(
+            "SELECT provision_staff_invitation("
+            ":tenant_id, :actor_user_id, :invitation_id, :user_id, :token_hash, "
+            ":expires_at, :role, :display_name)"
+        ),
+        {
+            "tenant_id": transaction.tenant_id,
+            "actor_user_id": transaction.user_id,
+            "invitation_id": invitation_id,
+            "user_id": user_id,
+            "token_hash": token_hash,
+            "expires_at": expires_at,
+            "role": command.role,
+            "display_name": command.display_name,
+        },
+    )
+    row = (
+        await transaction.session.execute(
+            text(
+                "SELECT user_id, display_name, role, state, created_at, updated_at "
+                "FROM tenant_memberships WHERE tenant_id = :tenant_id AND user_id = :user_id"
+            ),
+            {"tenant_id": transaction.tenant_id, "user_id": user_id},
+        )
+    ).one()
+    await record_audit(
+        transaction,
+        "staff.invitation.created",
+        "staff_invitation",
+        invitation_id,
+        {
+            "membership_user_id": str(user_id),
+            "display_name": command.display_name,
+            "role": command.role,
+            "expires_at": expires_at.isoformat(),
+        },
+    )
+    return StaffInvitationCreated(
+        invitation_id=invitation_id,
+        invitation_token=token,
+        expires_at=expires_at,
+        member=_staff_member(row, transaction.user_id),
+    )
+
+
+async def list_staff_invitations(
+    transaction: TenantTransaction,
+) -> list[StaffInvitationSummary]:
+    require_team_manager(transaction)
+    rows = (
+        await transaction.session.execute(
+            text(
+                "SELECT id AS invitation_id, user_id, "
+                "CASE WHEN state = 'pending' AND expires_at <= now() THEN 'expired' "
+                "ELSE state END AS state, expires_at, created_at "
+                "FROM staff_invitations WHERE tenant_id = :tenant_id "
+                "ORDER BY created_at DESC"
+            ),
+            {"tenant_id": transaction.tenant_id},
+        )
+    ).all()
+    return [StaffInvitationSummary.model_validate(dict(row._mapping)) for row in rows]
+
+
+async def revoke_staff_invitation(
+    transaction: TenantTransaction, invitation_id: UUID
+) -> StaffInvitationRevoked:
+    require_team_manager(transaction)
+    await _lock_active_owner(transaction)
+    invitation = (
+        await transaction.session.execute(
+            text(
+                "SELECT id, user_id, state FROM staff_invitations "
+                "WHERE tenant_id = :tenant_id AND id = :invitation_id FOR UPDATE"
+            ),
+            {"tenant_id": transaction.tenant_id, "invitation_id": invitation_id},
+        )
+    ).one_or_none()
+    if invitation is None:
+        raise TeamMemberNotFound
+    if invitation.state != "pending":
+        raise TeamConflict("Only a pending invitation can be revoked")
+    await transaction.session.execute(
+        text(
+            "UPDATE staff_invitations SET state = 'revoked', revoked_at = now(), "
+            "updated_at = now() WHERE tenant_id = :tenant_id AND id = :invitation_id"
+        ),
+        {"tenant_id": transaction.tenant_id, "invitation_id": invitation_id},
+    )
+    await transaction.session.execute(
+        text(
+            "UPDATE tenant_memberships SET state = 'disabled', updated_at = now() "
+            "WHERE tenant_id = :tenant_id AND user_id = :user_id AND state = 'invited'"
+        ),
+        {"tenant_id": transaction.tenant_id, "user_id": invitation.user_id},
+    )
+    await record_audit(
+        transaction,
+        "staff.invitation.revoked",
+        "staff_invitation",
+        invitation_id,
+        {"membership_user_id": str(invitation.user_id)},
+    )
+    return StaffInvitationRevoked(invitation_id=invitation_id)

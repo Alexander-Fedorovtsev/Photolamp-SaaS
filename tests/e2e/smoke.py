@@ -101,6 +101,10 @@ status, body = request(f"{api_url}/api/v1/t/{tenant_id}/team", headers=authoriza
 team = json.loads(body)
 assert status == 200 and team["tenant_id"] == tenant_id and team["can_manage"] is True
 assert len(team["members"]) >= 3 and "phone" not in body
+status, body = request(
+    f"{api_url}/api/v1/t/{tenant_id}/team/invitations", headers=authorization
+)
+assert status == 200 and "invitation_token" not in body and "password" not in body
 assert (
     request(f"{api_url}/api/v1/auth/session", method="DELETE", headers=authorization)[0]
     == 200
@@ -109,5 +113,6 @@ assert get(f"{api_url}/openapi.json")[0] == 200
 assert get(f"{web_url}/manifest.webmanifest")[0] == 200
 print(
     "Stack smoke: readiness, two catalogs and quotes, blocked demo checkout, demo staff "
-    "session, tenant admin/team, auth boundary, unknown tenant, OpenAPI and manifest passed"
+    "session, tenant admin/team invitation boundary, auth boundary, unknown tenant, "
+    "OpenAPI and manifest passed"
 )

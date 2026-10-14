@@ -54,6 +54,7 @@ from app.orders import (
 )
 from app.rate_limit import enforce_rate_limit
 from app.sms import build_sms_provider
+from app.staff_auth_routes import router as staff_auth_router
 from app.tenancy import (
     TenantContext,
     TenantSummary,
@@ -110,14 +111,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "remain availability-safe. SMS notification jobs fail closed while the provider "
             "is disabled. A privacy-minimized tenant dashboard summarizes daily operations "
             "and inventory without exposing customer contacts or asset identifiers."
-            " Tenant owners can administer existing privacy-safe staff memberships with "
-            "audited role and access changes; invitations remain disabled until production auth."
+            " Tenant owners can administer privacy-safe staff memberships and create expiring, "
+            "one-time invitations. Staff choose a non-personal login and password at redemption; "
+            "SMS delivery, recovery and MFA remain disabled until their production stages."
         ),
     )
     application.include_router(admin_router)
     application.include_router(admin_order_router)
     application.include_router(admin_dashboard_router)
     application.include_router(admin_team_router)
+    application.include_router(staff_auth_router)
 
     @application.exception_handler(IntegrityError)
     async def integrity_conflict(_request: object, _error: IntegrityError) -> JSONResponse:

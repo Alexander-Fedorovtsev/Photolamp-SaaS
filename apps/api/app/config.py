@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     otp_request_rate_limit: int = Field(default=3, ge=1, le=20)
     otp_verify_rate_limit: int = Field(default=10, ge=3, le=50)
     customer_session_ttl_seconds: int = Field(default=86400, ge=900, le=604800)
+    staff_session_ttl_seconds: int = Field(default=43200, ge=900, le=604800)
+    staff_invitation_ttl_seconds: int = Field(default=172800, ge=3600, le=604800)
+    staff_auth_rate_limit: int = Field(default=10, ge=3, le=50)
 
     @model_validator(mode="after")
     def validate_environment(self) -> "Settings":

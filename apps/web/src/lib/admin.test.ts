@@ -4,6 +4,8 @@ import {
   adminOrderContactAccessSchema,
   adminOrderPageSchema,
   membershipSchema,
+  staffInvitationCreatedSchema,
+  staffInvitationSummarySchema,
   operationsDashboardSchema,
   teamSnapshotSchema,
 } from "./admin";
@@ -199,6 +201,36 @@ describe("tenant admin contracts", () => {
       teamSnapshotSchema.safeParse({
         ...team,
         members: [{ ...team.members[0], phone_e164: "+70000000000" }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("validates one-time invitation contracts without accepting credential fields", () => {
+    const member = {
+      user_id: "d5000000-0000-0000-0000-000000000009",
+      display_name: "Новый оператор",
+      role: "operator",
+      state: "invited",
+      is_current_user: false,
+      created_at: "2030-01-01T12:00:00+00:00",
+      updated_at: "2030-01-01T12:00:00+00:00",
+    };
+    expect(
+      staffInvitationCreatedSchema.parse({
+        invitation_id: "d6000000-0000-0000-0000-000000000009",
+        invitation_token: `pli_${"a".repeat(43)}`,
+        expires_at: "2030-01-03T12:00:00+00:00",
+        member,
+      }).member.state,
+    ).toBe("invited");
+    expect(
+      staffInvitationSummarySchema.safeParse({
+        invitation_id: "d6000000-0000-0000-0000-000000000009",
+        user_id: member.user_id,
+        state: "pending",
+        expires_at: "2030-01-03T12:00:00+00:00",
+        created_at: "2030-01-01T12:00:00+00:00",
+        password_hash: "must-not-cross-boundary",
       }).success,
     ).toBe(false);
   });

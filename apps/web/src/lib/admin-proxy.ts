@@ -1,8 +1,21 @@
 import { cookies } from "next/headers";
+import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { apiInternalUrl } from "@/lib/api";
 
 export const staffSessionCookie = "photolamp_staff_session";
+
+export async function storeStaffSession(request: NextRequest, token: string, expiresAt: string) {
+  const expires = new Date(expiresAt);
+  if (!Number.isFinite(expires.getTime())) throw new Error("Invalid session expiry");
+  (await cookies()).set(staffSessionCookie, token, {
+    httpOnly: true,
+    secure: request.headers.get("x-forwarded-proto") === "https",
+    sameSite: "strict",
+    path: "/",
+    expires,
+  });
+}
 
 export async function proxyStaffRequest(path: string, init?: RequestInit) {
   const token = (await cookies()).get(staffSessionCookie)?.value;

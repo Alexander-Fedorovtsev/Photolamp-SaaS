@@ -29,6 +29,11 @@ Handover, продление и решения по возврату созда�
 `disabled` они остаются `blocked/provider_disabled`. Worker и попытки доставки не
 запускаются; эти записи нельзя трактовать как отправленные сообщения.
 
+Staff-приглашения не зависят от SMS: owner вручную передаёт одноразовую ссылку.
+`STAFF_INVITATION_TTL_SECONDS` задаёт срок ссылки (по умолчанию 48 часов),
+`STAFF_SESSION_TTL_SECONDS` — срок staff-сессии (12 часов), а
+`STAFF_AUTH_RATE_LIMIT` — число попыток входа за минуту для одного логина.
+
 `CONTACT_ENCRYPTION_KEY` — URL-safe base64 от 32 случайных байт. Локальный и
 staging demo используют документированный синтетический ключ только потому, что
 API demo-tenant принимает исключительно `+70000000000`, имя `Тестовый клиент` и
@@ -178,13 +183,18 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 | API `GET /api/v1/t/{tenant_id}/dashboard` | Privacy-safe сводка owner/admin/operator по срокам филиалов, запросам и состоянию парка |
 | API `GET /api/v1/t/{tenant_id}/team` | Privacy-safe список memberships для owner/admin без телефонов и session data |
 | API `PATCH /api/v1/t/{tenant_id}/team/{user_id}` | Owner-only изменение роли/состояния/подписи с аудитом и защитой active owner |
+| API `POST/GET /api/v1/t/{tenant_id}/team/invitations` | Owner создаёт одноразовую ссылку; повторный GET возвращает только безопасные metadata без token |
+| API `DELETE /api/v1/t/{tenant_id}/team/invitations/{invitation_id}` | Owner отзывает неиспользованное приглашение и блокирует invited membership |
+| API `POST /api/v1/auth/staff/invitations/redeem` | Атомарная активация ссылки, выбор login/scrypt password и выдача opaque session |
+| API `POST /api/v1/auth/staff/login` | Повторный staff login с generic errors, rate limit и временной блокировкой |
 | API `POST /api/v1/t/{tenant_id}/orders/phone` | Атомарный подтверждённый заказ оператора; контакты и адрес шифруются, demo принимает только фиксированный synthetic contact |
 | API `POST /api/v1/t/{tenant_id}/orders/{id}/{confirm,cancel}` | Idempotent staff-переход с actor audit и синхронным состоянием allocation |
 | API `POST /api/v1/t/{tenant_id}/orders/{id}/extension-requests/{request_id}/{approve,reject}` | Staff-решение с повторной проверкой availability и сохранением исходного snapshot |
 | API `POST /api/v1/t/{tenant_id}/orders/{id}/pickup-requests/{request_id}/{acknowledge,reject}` | Staff-решение по запросу возврата с аудитом |
 | API `POST /api/v1/t/{tenant_id}/assets/{asset_id}/blocks` | Tenant-scoped сервисная блокировка прибора с аудитом |
 | API `/docs`, `/openapi.json` | Реальная спецификация текущего API |
-| Web `/admin` | Адаптивная demo-панель с HttpOnly session proxy; не production-auth |
+| Web `/admin` | Staff login и адаптивная tenant-панель через HttpOnly session proxy; demo-вход отдельно отключается в production |
+| Web `/admin/invite#token=…` | Клиентская активация одноразовой ссылки; fragment очищается до отправки формы |
 | Web `/api/health/live` | 200 при живом web |
 | Web `/api/health/ready` | 200 при готовом API; иначе 503 |
 | API `/api/v1/version` | SHA текущего API-образа, no-store |
@@ -205,5 +215,6 @@ Fulfillment lifecycle: `architecture/adr-0012-order-fulfillment.md`.
 Extensions, overdue and notification outbox: `architecture/adr-0013-order-requests-notifications.md`.
 Tenant operations dashboard: `architecture/adr-0014-operations-dashboard.md`.
 Tenant staff directory and role controls: `architecture/adr-0015-tenant-staff-access.md`.
+Staff invitations and password authentication: `architecture/adr-0016-staff-invitations-auth.md`.
 Реализованный landing: `product/landing-foundation.md`.
 Публикация staging и GitHub CD: `deployment.md`.
