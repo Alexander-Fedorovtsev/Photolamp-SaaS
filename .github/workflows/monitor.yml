@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
+    inputs:
+      send_test_alert:
+        description: Send a test message to the Telegram on-call destination
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -13,8 +19,34 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  telegram-test:
+    if: github.event_name == 'workflow_dispatch' && inputs.send_test_alert && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Send test alert
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID }}
+          TELEGRAM_ALERT_THREAD_ID: ${{ secrets.TELEGRAM_ALERT_THREAD_ID }}
+        run: |
+          python3 infra/scripts/send-telegram-alert.py \
+            --status test \
+            --component "staging monitor" \
+            --environment staging \
+            --repository "$GITHUB_REPOSITORY" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --sha "$GITHUB_SHA"
+
   monitor:
-    if: vars.STAGING_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    if: >-
+      vars.STAGING_DEPLOY_ENABLED == 'true' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || !inputs.send_test_alert)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: staging
@@ -59,3 +91,17 @@ jobs:
       - name: Remove SSH material
         if: always()
         run: rm -f -- "$RUNNER_TEMP/photolamp-staging-key" "$RUNNER_TEMP/photolamp-known-hosts"
+      - name: Notify Telegram on-call channel
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID }}
+          TELEGRAM_ALERT_THREAD_ID: ${{ secrets.TELEGRAM_ALERT_THREAD_ID }}
+        run: |
+          python3 infra/scripts/send-telegram-alert.py \
+            --status failure \
+            --component "staging monitor" \
+            --environment staging \
+            --repository "$GITHUB_REPOSITORY" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --sha "$WORKFLOW_SHA"

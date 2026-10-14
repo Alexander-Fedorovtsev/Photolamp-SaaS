@@ -390,6 +390,20 @@ class StagingTopology(unittest.TestCase):
             deploy.index("monitor-staging.sh"),
         )
 
+    def test_operational_workflows_alert_telegram_only_on_failure(self):
+        for workflow_name in ("monitor.yml", "deploy.yml", "backup.yml"):
+            workflow = (ROOT / ".github/workflows" / workflow_name).read_text()
+            with self.subTest(workflow=workflow_name):
+                self.assertIn("Notify Telegram on-call channel", workflow)
+                self.assertIn("if: failure()", workflow)
+                self.assertIn("secrets.TELEGRAM_BOT_TOKEN", workflow)
+                self.assertIn("secrets.TELEGRAM_ALERT_CHAT_ID", workflow)
+                self.assertIn("infra/scripts/send-telegram-alert.py", workflow)
+
+        monitor_workflow = (ROOT / ".github/workflows/monitor.yml").read_text()
+        self.assertIn("send_test_alert", monitor_workflow)
+        self.assertIn("--status test", monitor_workflow)
+
     def test_rejects_host_ports_and_shared_database_network(self):
         for service in [
             "api",
