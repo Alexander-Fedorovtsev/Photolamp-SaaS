@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { apiInternalUrl } from "@/lib/api";
 import { forwardedClientHeaders, storeStaffSession } from "@/lib/admin-proxy";
+import { requestIdHeader } from "@/lib/request-id";
 
 const tokenPattern = /^pli_[A-Za-z0-9_-]{32,128}$/;
 const loginPattern = /^[a-z][a-z0-9._-]{3,31}$/;
@@ -23,9 +24,10 @@ export async function POST(request: NextRequest) {
   ) {
     return NextResponse.json({ detail: "Проверьте данные приглашения" }, { status: 400 });
   }
+  const forwardedHeaders = forwardedClientHeaders(request);
   const response = await fetch(`${apiInternalUrl()}/api/v1/auth/staff/invitations/redeem`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...forwardedClientHeaders(request) },
+    headers: { "Content-Type": "application/json", ...forwardedHeaders },
     body: JSON.stringify({
       invitation_token: token,
       login_name: loginName,
@@ -40,9 +42,24 @@ export async function POST(request: NextRequest) {
   if (!response.ok || !payload.access_token || !payload.expires_at) {
     return NextResponse.json(
       { detail: "Ссылка недействительна, истекла или логин уже занят" },
-      { status: response.status },
+      {
+        status: response.status,
+        headers: {
+          [requestIdHeader]:
+            response.headers.get(requestIdHeader) ?? forwardedHeaders[requestIdHeader],
+        },
+      },
     );
   }
   await storeStaffSession(request, payload.access_token, payload.expires_at);
-  return NextResponse.json({ authenticated: true }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json(
+    { authenticated: true },
+    {
+      headers: {
+        "Cache-Control": "no-store",
+        [requestIdHeader]:
+          response.headers.get(requestIdHeader) ?? forwardedHeaders[requestIdHeader],
+      },
+    },
+  );
 }

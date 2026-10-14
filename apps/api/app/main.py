@@ -34,6 +34,12 @@ from app.customer_auth import (
 from app.database import Database, create_engine
 from app.health import Readiness, check_readiness
 from app.holds import ReleasedHold, RentalHold, create_hold, release_hold
+from app.observability import (
+    HttpMetrics,
+    ObservabilityMiddleware,
+    configure_logging,
+    metrics_response,
+)
 from app.order_requests import (
     ExtensionRequestCommand,
     ExtensionRequestResult,
@@ -71,9 +77,14 @@ logger = logging.getLogger(__name__)
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     config = settings or Settings()
+    metrics = HttpMetrics(
+        environment=config.app_env,
+        revision=config.photolamp_deploy_sha,
+    )
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+        configure_logging(config.app_env, config.photolamp_deploy_sha)
         engine = create_engine(config)
         redis = Redis.from_url(
             config.redis_url.get_secret_value(),
@@ -119,6 +130,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "delivery, recovery and MFA remain disabled until their production stages."
         ),
     )
+    application.add_middleware(ObservabilityMiddleware, metrics=metrics)
     application.include_router(admin_router)
     application.include_router(admin_order_router)
     application.include_router(admin_dashboard_router)
@@ -128,11 +140,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @application.exception_handler(IntegrityError)
     async def integrity_conflict(_request: object, _error: IntegrityError) -> JSONResponse:
-        logger.warning("Catalog integrity conflict: %s", _error.orig)
+        logger.warning("catalog_integrity_conflict")
         return JSONResponse(
             {"detail": "Catalog data conflicts with an existing or related record"},
             status_code=409,
         )
+
+    @application.get("/internal/metrics", include_in_schema=False)
+    async def prometheus_metrics() -> Response:
+        payload, content_type = metrics_response(metrics)
+        return Response(payload, media_type=None, headers={"Content-Type": content_type})
 
     @application.get("/api/v1/health/live", tags=["health"])
     async def live() -> dict[str, str]:

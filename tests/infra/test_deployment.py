@@ -92,6 +92,15 @@ class DeploymentGate(unittest.TestCase):
         self.assertNotEqual(backup.returncode, 0)
         self.assertIn("Expected one workflow Git SHA", backup.stderr)
 
+        monitor = subprocess.run(
+            ["bash", str(ROOT / "infra/scripts/remote-monitor.sh"), "main"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(monitor.returncode, 0)
+        self.assertIn("Expected one workflow Git SHA", monitor.stderr)
+
     def test_retry_helper_recovers_and_is_bounded(self):
         remote = (ROOT / "infra/scripts/remote-deploy.sh").read_text()
         start = remote.index("retry_command() {")
@@ -359,6 +368,26 @@ class StagingTopology(unittest.TestCase):
         self.assertLess(
             deploy.index(coverage_check),
             deploy.index("Healthy release"),
+        )
+
+    def test_monitor_is_private_scheduled_and_part_of_deploy_gate(self):
+        workflow = (ROOT / ".github/workflows/monitor.yml").read_text()
+        monitor = (ROOT / "infra/scripts/monitor-staging.sh").read_text()
+        remote = (ROOT / "infra/scripts/remote-monitor.sh").read_text()
+        deploy = (ROOT / "infra/scripts/remote-deploy.sh").read_text()
+        self.assertIn('cron: "*/15 * * * *"', workflow)
+        self.assertIn("group: photolamp-staging", workflow)
+        self.assertIn("infra/scripts/remote-monitor.sh", workflow)
+        self.assertIn("git rev-parse HEAD", remote)
+        self.assertIn("flock -w 600", remote)
+        self.assertIn("http://127.0.0.1:8000/internal/metrics", monitor)
+        self.assertIn("https://$hostname/internal/metrics", monitor)
+        self.assertIn('[[ "$metrics_status" == 404 ]]', monitor)
+        self.assertIn("PHOTOLAMP_MAX_BACKUP_AGE_SECONDS:-93600", monitor)
+        self.assertIn("sha256sum --check --status", monitor)
+        self.assertLess(
+            deploy.index("backup-database.sh"),
+            deploy.index("monitor-staging.sh"),
         )
 
     def test_rejects_host_ports_and_shared_database_network(self):

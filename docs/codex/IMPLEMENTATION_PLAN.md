@@ -290,6 +290,10 @@ AES-256-GCM отдельным версионированным keyring, ато�
 keyring: новая версия активируется до пакетного resumable re-encryption, старые
 ключи читаются до безопасного удаления, а database-wide reference check запрещает
 удалить используемый ключ. Maintenance-процесс изолирован от долгоживущего API и
-пишет журнал запуска без персональных данных. До реального пилота по-прежнему
-обязательны off-host immutable backup, внешний restore drill, наблюдаемость,
-legal gate и отдельный production-контур.
+пишет журнал запуска без персональных данных. Добавлен observability baseline:
+сквозной bounded request ID, JSON HTTP logs по шаблонам маршрутов, внутренние
+Prometheus-метрики и 15-минутный staging monitor. Monitor проверяет HTTPS, точный
+SHA, контейнеры, метрики и свежесть/целостность encrypted backup, а тот же gate
+выполняется после CD. До реального пилота по-прежнему обязательны off-host
+immutable backup, внешний restore drill, независимый uptime probe, централизованное
+хранилище telemetry и on-call alerts, legal gate и отдельный production-контур.

@@ -154,6 +154,9 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 успешен только при успехе frontend, backend, stack и infrastructure jobs. Последний
 проверяет CD gate, staging topology, настоящий Traefik/HTTPS/Basic Auth и полный
 цикл encrypted backup → disposable restore, включая смену активного backup key.
+После CD и каждые 15 минут отдельный staging monitor проверяет точный SHA,
+контейнеры, внешний HTTPS, внутренние Prometheus-метрики и свежесть зашифрованной
+копии. Это GitHub Actions failure signal, а не подключённый paging-провайдер.
 Для защиты main можно назначить
 `quality-gate` required check в правилах репозитория.
 
@@ -163,6 +166,7 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 | --- | --- |
 | API `/api/v1/health/live` | 200 при живом процессе |
 | API `/api/v1/health/ready` | 200 после PostgreSQL migration + Redis PING; иначе 503 |
+| API `/internal/metrics` | Process-local Prometheus metrics только во внутренней сети; отсутствует в OpenAPI и публичном web proxy |
 | API `/api/v1/r/{slug}/catalog` | DB-backed публичный demo-каталог без приватных asset-полей, либо 404 |
 | API `/api/v1/r/{slug}/preview` | Deprecated summary того же DB-backed каталога |
 | API `/api/v1/me/tenants` | Активные memberships непрозрачной сессии; 401 без неё |
@@ -229,5 +233,6 @@ Staff invitations and password authentication: `architecture/adr-0016-staff-invi
 Staff session inventory and revocation: `architecture/adr-0017-staff-session-management.md`.
 Production web and dependency security baseline: `architecture/adr-0018-production-security-baseline.md`.
 Encrypted database backups and restore drills: `architecture/adr-0019-encrypted-backup-restore.md`.
+Observability and staging monitor: `architecture/adr-0021-observability-baseline.md`.
 Реализованный landing: `product/landing-foundation.md`.
 Публикация staging и GitHub CD: `deployment.md`.

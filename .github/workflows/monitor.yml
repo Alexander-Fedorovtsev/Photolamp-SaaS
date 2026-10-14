@@ -1,0 +1,61 @@
+name: Monitor staging
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: photolamp-staging
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    if: vars.STAGING_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging
+    env:
+      WORKFLOW_SHA: ${{ github.sha }}
+      STAGING_HOST: ${{ secrets.STAGING_HOST }}
+      STAGING_USER: ${{ secrets.STAGING_USER }}
+      STAGING_SSH_PORT: ${{ secrets.STAGING_SSH_PORT }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Configure verified SSH access
+        env:
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_KNOWN_HOSTS: ${{ secrets.STAGING_KNOWN_HOSTS }}
+        run: |
+          set -Eeuo pipefail
+          for name in STAGING_HOST STAGING_USER STAGING_SSH_PORT STAGING_SSH_KEY STAGING_KNOWN_HOSTS; do
+            [[ -n "${!name}" ]] || { echo "Missing staging secret: $name" >&2; exit 1; }
+          done
+          [[ "$STAGING_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          [[ "$STAGING_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$STAGING_SSH_PORT" =~ ^[0-9]{1,5}$ ]]
+          (( 10#$STAGING_SSH_PORT > 0 && 10#$STAGING_SSH_PORT <= 65535 ))
+          umask 077
+          printf '%s\n' "$STAGING_SSH_KEY" > "$RUNNER_TEMP/photolamp-staging-key"
+          printf '%s\n' "$STAGING_KNOWN_HOSTS" > "$RUNNER_TEMP/photolamp-known-hosts"
+          ssh-keygen -y -P '' -f "$RUNNER_TEMP/photolamp-staging-key" > /dev/null
+          host_lookup="$STAGING_HOST"
+          if [[ "$STAGING_SSH_PORT" != 22 ]]; then host_lookup="[$STAGING_HOST]:$STAGING_SSH_PORT"; fi
+          ssh-keygen -F "$host_lookup" -f "$RUNNER_TEMP/photolamp-known-hosts" > /dev/null
+      - name: Check deployed revision, services, metrics and backup
+        run: |
+          set -Eeuo pipefail
+          bash infra/scripts/run-remote-deploy.sh \
+            "$WORKFLOW_SHA" \
+            "$RUNNER_TEMP/photolamp-staging-key" \
+            "$RUNNER_TEMP/photolamp-known-hosts" \
+            "$STAGING_HOST" "$STAGING_USER" "$STAGING_SSH_PORT" \
+            infra/scripts/remote-monitor.sh
+      - name: Remove SSH material
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/photolamp-staging-key" "$RUNNER_TEMP/photolamp-known-hosts"
