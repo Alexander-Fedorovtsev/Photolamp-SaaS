@@ -1,7 +1,12 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { apiInternalUrl } from "@/lib/api";
-import { proxyStaffRequest, staffSessionCookie, storeStaffSession } from "@/lib/admin-proxy";
+import {
+  forwardedClientHeaders,
+  proxyStaffRequest,
+  staffSessionCookie,
+  storeStaffSession,
+} from "@/lib/admin-proxy";
 
 export async function GET() {
   return proxyStaffRequest("/api/v1/me/tenants");
@@ -10,6 +15,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const response = await fetch(`${apiInternalUrl()}/api/v1/auth/demo-session`, {
     method: "POST",
+    headers: forwardedClientHeaders(request),
     cache: "no-store",
   });
   const payload = (await response.json()) as {

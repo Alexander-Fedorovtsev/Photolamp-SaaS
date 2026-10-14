@@ -16,8 +16,9 @@ Staff decisions preserve the immutable snapshot, recheck allocation conflicts an
 overdue as a derived branch-local fact. Notification jobs are durable and deduplicated but
 remain explicitly blocked while the provider is disabled.
 Staff invitation links and repeat password login are implemented without an external
-delivery service. No real SMS provider, password recovery, MFA, public confirmation or
-payment exists; the disabled and local/test memory SMS adapters preserve the future provider port.
+delivery service. Staff can list and revoke their own privacy-minimized active sessions.
+No real SMS provider, password recovery, MFA, public confirmation or payment exists;
+the disabled and local/test memory SMS adapters preserve the future provider port.
 Add domain modules here only with their migrations, authorization and critical isolation
 tests.
 

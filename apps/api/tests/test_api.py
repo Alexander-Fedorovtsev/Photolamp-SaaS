@@ -200,6 +200,8 @@ def test_openapi_matches_catalog_contract(client: TestClient) -> None:
     assert "/api/v1/t/{tenant_id}/context" in schema["paths"]
     assert "/api/v1/auth/staff/login" in schema["paths"]
     assert "/api/v1/auth/staff/invitations/redeem" in schema["paths"]
+    assert "/api/v1/auth/staff/sessions" in schema["paths"]
+    assert "/api/v1/auth/staff/sessions/{session_id}" in schema["paths"]
     assert "/api/v1/t/{tenant_id}/team/invitations" in schema["paths"]
     assert "/api/v1/t/{tenant_id}/team/invitations/{invitation_id}" in schema["paths"]
     assert "HTTPBearer" in schema["components"]["securitySchemes"]

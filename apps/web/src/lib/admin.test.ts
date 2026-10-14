@@ -6,6 +6,8 @@ import {
   membershipSchema,
   staffInvitationCreatedSchema,
   staffInvitationSummarySchema,
+  staffSessionRevokedSchema,
+  staffSessionSummarySchema,
   operationsDashboardSchema,
   teamSnapshotSchema,
 } from "./admin";
@@ -233,5 +235,33 @@ describe("tenant admin contracts", () => {
         password_hash: "must-not-cross-boundary",
       }).success,
     ).toBe(false);
+  });
+
+  it("validates privacy-minimized staff session contracts", () => {
+    expect(
+      staffSessionSummarySchema.parse({
+        session_id: "d7000000-0000-0000-0000-000000000001",
+        client_label: "Safari · macOS",
+        created_at: "2030-01-01T12:00:00+00:00",
+        last_seen_at: "2030-01-01T12:05:00+00:00",
+        expires_at: "2030-01-02T00:00:00+00:00",
+        is_current: true,
+      }).client_label,
+    ).toBe("Safari · macOS");
+    expect(
+      staffSessionSummarySchema.safeParse({
+        session_id: "d7000000-0000-0000-0000-000000000001",
+        client_label: "Safari · macOS",
+        created_at: "2030-01-01T12:00:00+00:00",
+        last_seen_at: "2030-01-01T12:05:00+00:00",
+        expires_at: "2030-01-02T00:00:00+00:00",
+        is_current: true,
+        token_hash: "must-not-cross-boundary",
+      }).success,
+    ).toBe(false);
+    expect(staffSessionRevokedSchema.parse({ revoked: true, revoked_current: false })).toEqual({
+      revoked: true,
+      revoked_current: false,
+    });
   });
 });

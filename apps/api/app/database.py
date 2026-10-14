@@ -37,6 +37,9 @@ class Database:
 
     async def list_tenants(self, token_hash: bytes) -> list[dict[str, object]]:
         async with self.transaction() as session:
+            await session.execute(
+                text("SELECT touch_auth_session(:token_hash)"), {"token_hash": token_hash}
+            )
             result = await session.execute(
                 text(
                     "SELECT tenant_id, slug, display_name, timezone, role "
@@ -55,7 +58,7 @@ class Database:
             return None if value is None else UUID(str(value))
 
     async def issue_demo_session(
-        self, session_id: UUID, token_hash: bytes, expires_at: datetime
+        self, session_id: UUID, token_hash: bytes, expires_at: datetime, client_label: str
     ) -> UUID:
         async with self.transaction() as session:
             value = await session.scalar(
@@ -66,6 +69,15 @@ class Database:
                     "expires_at": expires_at,
                 },
             )
+            annotated = await session.scalar(
+                text(
+                    "SELECT COALESCE(set_auth_session_metadata("
+                    ":token_hash, :client_label, 'demo'), false)"
+                ),
+                {"token_hash": token_hash, "client_label": client_label},
+            )
+            if not annotated:
+                raise RuntimeError("Issued demo session could not be annotated")
             return UUID(str(value))
 
     async def revoke_session(self, token_hash: bytes) -> bool:
@@ -106,6 +118,9 @@ class Database:
         self, token_hash: bytes, tenant_id: UUID
     ) -> AsyncIterator["TenantTransaction"]:
         async with self.transaction() as session:
+            await session.execute(
+                text("SELECT touch_auth_session(:token_hash)"), {"token_hash": token_hash}
+            )
             authorized = (
                 await session.execute(
                     text(

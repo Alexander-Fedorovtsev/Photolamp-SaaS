@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import text
 
 from app.database import Database
+from app.staff_sessions import annotate_session
 
 LOGIN_PATTERN = re.compile(r"^[a-z][a-z0-9._-]{3,31}$")
 INVITATION_TOKEN_PATTERN = re.compile(r"^pli_[A-Za-z0-9_-]{32,128}$")
@@ -122,6 +123,7 @@ async def redeem_invitation(
     command: StaffInvitationRedemption,
     *,
     session_ttl_seconds: int,
+    client_label: str,
 ) -> StaffSession:
     password_hash = await asyncio.to_thread(hash_password, command.password)
     session_id, token, token_hash, expires_at = _session_material(session_ttl_seconds)
@@ -144,6 +146,13 @@ async def redeem_invitation(
                 },
             )
         ).one_or_none()
+        if redeemed is not None:
+            await annotate_session(
+                session,
+                token_hash,
+                client_label=client_label,
+                session_kind="staff",
+            )
     if redeemed is None:
         raise InvalidStaffInvitation
     return StaffSession(access_token=token, expires_at=redeemed.expires_at)
@@ -154,6 +163,7 @@ async def login_staff(
     command: StaffLoginCommand,
     *,
     session_ttl_seconds: int,
+    client_label: str,
 ) -> StaffSession:
     async with database.transaction() as session:
         credential = (
@@ -196,6 +206,13 @@ async def login_staff(
                 "expires_at": expires_at,
             },
         )
+        if user_id is not None:
+            await annotate_session(
+                session,
+                token_hash,
+                client_label=client_label,
+                session_kind="staff",
+            )
     if user_id is None:
         raise InvalidStaffCredentials
     return StaffSession(access_token=token, expires_at=expires_at)

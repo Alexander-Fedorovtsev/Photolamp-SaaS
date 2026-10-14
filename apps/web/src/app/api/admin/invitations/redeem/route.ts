@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { apiInternalUrl } from "@/lib/api";
-import { storeStaffSession } from "@/lib/admin-proxy";
+import { forwardedClientHeaders, storeStaffSession } from "@/lib/admin-proxy";
 
 const tokenPattern = /^pli_[A-Za-z0-9_-]{32,128}$/;
 const loginPattern = /^[a-z][a-z0-9._-]{3,31}$/;
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
   }
   const response = await fetch(`${apiInternalUrl()}/api/v1/auth/staff/invitations/redeem`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...forwardedClientHeaders(request) },
     body: JSON.stringify({
       invitation_token: token,
       login_name: loginName,

@@ -67,7 +67,9 @@ API/OpenAPI: <http://localhost:8000/docs>.
 выдаёт короткую opaque session только синтетическому staff user. Владелец может
 создать одноразовое приглашение на 48 часов; сотрудник выбирает неперсональный
 логин и пароль, который хранится как salted scrypt hash, и получает HttpOnly
-session без внешнего SMS-провайдера. В адаптивной `/admin` можно просматривать tenant-scoped
+session без внешнего SMS-провайдера. Сотрудник видит собственные активные
+сессии, может завершить одну или выйти на всех устройствах; список не хранит IP
+и полный User-Agent. В адаптивной `/admin` можно просматривать tenant-scoped
 очередь и карточки заказов, создавать подтверждённый заказ по телефону на
 фиксированный синтетический контакт, подтверждать/отменять допустимые заявки,
 проводить заказ через выдачу, возврат и осмотр, отдельно открывать зашифрованный
@@ -102,6 +104,7 @@ session без внешнего SMS-провайдера. В адаптивно�
 - [Операционная сводка владельца](docs/architecture/adr-0014-operations-dashboard.md)
 - [Команда tenant и управление ролями](docs/architecture/adr-0015-tenant-staff-access.md)
 - [Одноразовые приглашения и staff-auth](docs/architecture/adr-0016-staff-invitations-auth.md)
+- [Список и отзыв staff-сессий](docs/architecture/adr-0017-staff-session-management.md)
 - [Реализованный landing и витрина](docs/product/landing-foundation.md)
 - [Демо photolamp-test.anliwei.pro и настройка Continuous Deployment](docs/deployment.md)
 
