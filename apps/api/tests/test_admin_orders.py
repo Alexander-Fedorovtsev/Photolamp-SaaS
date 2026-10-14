@@ -340,3 +340,79 @@ async def test_staff_order_queue_snapshot_and_idempotent_transitions() -> None:
         await set_booking(owner, False)
         await runtime.dispose()
         await owner.dispose()
+
+
+@pytest.mark.integration
+async def test_operations_dashboard_is_private_tenant_scoped_and_role_guarded() -> None:
+    runtime_url, owner_url = database_urls()
+    owner = create_async_engine(owner_url)
+    settings = Settings(
+        app_env="test",
+        database_url=runtime_url,
+        enable_demo_previews=True,
+        checkout_mutation_rate_limit=50,
+    )
+    app = create_app(settings)
+    try:
+        await clear_order_data(owner)
+        await clear_rate_limits(settings.redis_url.get_secret_value())
+        await set_booking(owner, True)
+        async with app.router.lifespan_context(app):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                login = await client.post("/api/v1/auth/demo-session")
+                headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+                order = await create_draft(client)
+
+                anonymous = await client.get(f"/api/v1/t/{TENANT_UFA}/dashboard")
+                assert anonymous.status_code == 401
+
+                response = await client.get(f"/api/v1/t/{TENANT_UFA}/dashboard", headers=headers)
+                assert response.status_code == 200
+                assert response.headers["cache-control"] == "no-store"
+                dashboard = response.json()
+                assert dashboard["tenant_id"] == str(TENANT_UFA)
+                assert dashboard["timezone"] == "Asia/Yekaterinburg"
+                assert dashboard["counts"]["awaiting_confirmation"] == 1
+                assert sum(dashboard["inventory"].values()) >= 1
+                assert str(order["order_id"]) not in response.text
+                for forbidden in (
+                    "phone_e164",
+                    "recipient_name",
+                    "delivery_address",
+                    "asset_code",
+                ):
+                    assert forbidden not in response.text
+
+                other_tenant = await client.get(
+                    f"/api/v1/t/{TENANT_KAZAN}/dashboard", headers=headers
+                )
+                assert other_tenant.status_code == 200
+                assert other_tenant.json()["tenant_id"] == str(TENANT_KAZAN)
+                assert other_tenant.json()["counts"]["awaiting_confirmation"] == 0
+
+                async with owner.begin() as connection:
+                    await connection.execute(
+                        text(
+                            "UPDATE tenant_memberships SET role = 'courier' "
+                            "WHERE tenant_id = :tenant_id AND user_id = :user_id"
+                        ),
+                        {"tenant_id": TENANT_UFA, "user_id": DEMO_USER},
+                    )
+                forbidden_response = await client.get(
+                    f"/api/v1/t/{TENANT_UFA}/dashboard", headers=headers
+                )
+                assert forbidden_response.status_code == 403
+    finally:
+        async with owner.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE tenant_memberships SET role = 'owner' "
+                    "WHERE tenant_id = :tenant_id AND user_id = :user_id"
+                ),
+                {"tenant_id": TENANT_UFA, "user_id": DEMO_USER},
+            )
+        await clear_order_data(owner)
+        await set_booking(owner, False)
+        await owner.dispose()

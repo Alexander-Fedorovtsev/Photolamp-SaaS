@@ -57,13 +57,19 @@ async def staff_orders(
     transaction: Transaction,
     state: Annotated[OrderState | None, Query()] = None,
     overdue: Annotated[bool, Query()] = False,
+    requests: Annotated[bool, Query()] = False,
     limit: Annotated[int, Query(ge=1, le=100)] = 25,
     offset: Annotated[int, Query(ge=0, le=10_000)] = 0,
 ) -> StaffOrderPage:
     response.headers["Cache-Control"] = "no-store"
     try:
         return await list_staff_orders(
-            transaction, state=state, overdue=overdue, limit=limit, offset=offset
+            transaction,
+            state=state,
+            overdue=overdue,
+            requests=requests,
+            limit=limit,
+            offset=offset,
         )
     except OrderPermissionDenied as error:
         raise translate_order_error(error) from None

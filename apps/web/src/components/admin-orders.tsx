@@ -14,7 +14,7 @@ import {
   type AdminCatalog,
 } from "@/lib/admin";
 
-type OrderFilter = "all" | "overdue" | AdminOrderState;
+export type OrderFilter = "all" | "overdue" | "requests" | AdminOrderState;
 
 const stateLabels: Record<AdminOrderState, string> = {
   held: "Ожидает подтверждения",
@@ -67,13 +67,17 @@ export function AdminOrders({
   timeZone,
   catalog,
   onUnauthorized,
+  initialFilter = "all",
+  onChanged,
 }: {
   tenantId: string;
   timeZone: string;
   catalog: AdminCatalog;
   onUnauthorized: () => void;
+  initialFilter?: OrderFilter;
+  onChanged?: () => void;
 }) {
-  const [filter, setFilter] = useState<OrderFilter>("all");
+  const [filter, setFilter] = useState<OrderFilter>(initialFilter);
   const [page, setPage] = useState<AdminOrderPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyOrderId, setBusyOrderId] = useState("");
@@ -84,6 +88,7 @@ export function AdminOrders({
     setNotice("");
     const query = new URLSearchParams({ tenant_id: tenantId });
     if (filter === "overdue") query.set("overdue", "true");
+    else if (filter === "requests") query.set("requests", "true");
     else if (filter !== "all") query.set("state", filter);
     try {
       const response = await fetch(`/api/admin/orders?${query}`, { cache: "no-store" });
@@ -151,6 +156,7 @@ export function AdminOrders({
       }
       adminOrderTransitionSchema.parse(payload);
       await loadOrders();
+      onChanged?.();
       const notices = {
         confirm: "Заказ подтверждён.",
         cancel: "Заказ отменён.",
@@ -210,6 +216,7 @@ export function AdminOrders({
       if (kind === "extension") adminExtensionDecisionSchema.parse(payload);
       else adminReturnDecisionSchema.parse(payload);
       await loadOrders();
+      onChanged?.();
       setNotice(
         decision === "approve"
           ? "Продление одобрено, период аренды и резерв обновлены."
@@ -246,6 +253,7 @@ export function AdminOrders({
             <option value="confirmed">Подтверждены</option>
             <option value="in_progress">У клиента</option>
             <option value="overdue">Просрочены</option>
+            <option value="requests">Запросы клиентов</option>
             <option value="returned">На осмотре</option>
             <option value="completed">Завершены</option>
             <option value="expired">Истекли</option>
@@ -264,6 +272,7 @@ export function AdminOrders({
         onCreated={async () => {
           setFilter("all");
           await loadOrders();
+          onChanged?.();
           setNotice("Синтетический заказ по телефону создан и подтверждён.");
         }}
         onUnauthorized={onUnauthorized}

@@ -4,6 +4,7 @@ import {
   adminOrderContactAccessSchema,
   adminOrderPageSchema,
   membershipSchema,
+  operationsDashboardSchema,
 } from "./admin";
 
 const staffOrderFixture = {
@@ -148,5 +149,31 @@ describe("tenant admin contracts", () => {
       replayed: false,
     });
     expect(access.contact.phone_e164).toBe("+70000000000");
+  });
+
+  it("validates a privacy-minimized operations dashboard", () => {
+    const dashboard = operationsDashboardSchema.parse({
+      tenant_id: "d0000000-0000-0000-0000-000000000001",
+      timezone: "Asia/Yekaterinburg",
+      local_date: "2030-01-10",
+      generated_at: "2030-01-10T06:00:00+00:00",
+      counts: {
+        awaiting_confirmation: 1,
+        handovers_due: 0,
+        returns_today: 0,
+        returns_tomorrow: 0,
+        overdue: 0,
+        inspection: 0,
+        pending_requests: 0,
+      },
+      inventory: { available: 2, rented: 0, inspection: 0, maintenance: 0, retired: 0 },
+      handovers_due: [],
+      returns_today: [],
+      returns_tomorrow: [],
+      overdue: [],
+      pending_requests: [],
+    });
+    expect(dashboard.counts.awaiting_confirmation).toBe(1);
+    expect(JSON.stringify(dashboard)).not.toContain("phone");
   });
 });

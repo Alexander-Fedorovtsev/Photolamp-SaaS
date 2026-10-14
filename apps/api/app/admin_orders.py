@@ -222,6 +222,7 @@ async def list_staff_orders(
     *,
     state: OrderState | None,
     overdue: bool,
+    requests: bool,
     limit: int,
     offset: int,
 ) -> StaffOrderPage:
@@ -231,6 +232,7 @@ async def list_staff_orders(
         "tenant_id": transaction.tenant_id,
         "state": state,
         "overdue": overdue,
+        "requests": requests,
         "limit": limit,
         "offset": offset,
     }
@@ -241,17 +243,27 @@ async def list_staff_orders(
             "WHERE o.tenant_id = :tenant_id "
             "AND (CAST(:state AS text) IS NULL OR o.state = CAST(:state AS text)) "
             "AND (NOT :overdue OR (o.state = 'in_progress' "
-            "AND o.end_date < (now() AT TIME ZONE b.timezone)::date))"
+            "AND o.end_date < (now() AT TIME ZONE b.timezone)::date)) "
+            "AND (NOT :requests OR EXISTS (SELECT 1 FROM order_extension_requests er "
+            "WHERE er.tenant_id = o.tenant_id AND er.order_id = o.id AND er.state = 'pending') "
+            "OR EXISTS (SELECT 1 FROM order_return_requests rr WHERE rr.tenant_id = o.tenant_id "
+            "AND rr.order_id = o.id AND rr.state = 'pending'))"
         ),
         parameters,
     )
     rows: Sequence[object] = (
         await transaction.session.execute(
             text(
-                STAFF_ORDER_PROJECTION + " WHERE o.tenant_id = :tenant_id "
+                STAFF_ORDER_PROJECTION  # noqa: S608 - projection and clauses are constants
+                + " WHERE o.tenant_id = :tenant_id "
                 "AND (CAST(:state AS text) IS NULL OR o.state = CAST(:state AS text)) "
                 "AND (NOT :overdue OR (o.state = 'in_progress' "
                 "AND o.end_date < (now() AT TIME ZONE b.timezone)::date)) "
+                "AND (NOT :requests OR EXISTS (SELECT 1 FROM order_extension_requests er "
+                "WHERE er.tenant_id = o.tenant_id AND er.order_id = o.id AND er.state = 'pending') "
+                "OR EXISTS (SELECT 1 FROM order_return_requests rr WHERE "
+                "rr.tenant_id = o.tenant_id "
+                "AND rr.order_id = o.id AND rr.state = 'pending')) "
                 "ORDER BY o.created_at DESC, o.id DESC LIMIT :limit OFFSET :offset"
             ),
             parameters,

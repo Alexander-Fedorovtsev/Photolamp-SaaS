@@ -57,6 +57,54 @@ const orderFixture = {
   updated_at: "2030-01-01T12:00:00+00:00",
 } as const satisfies AdminOrder;
 
+const dashboardFixture = {
+  tenant_id: "d0000000-0000-0000-0000-000000000001",
+  timezone: "Asia/Yekaterinburg",
+  local_date: "2030-01-10",
+  generated_at: "2030-01-10T06:00:00+00:00",
+  counts: {
+    awaiting_confirmation: 1,
+    handovers_due: 1,
+    returns_today: 0,
+    returns_tomorrow: 0,
+    overdue: 0,
+    inspection: 0,
+    pending_requests: 1,
+  },
+  inventory: { available: 2, rented: 1, inspection: 0, maintenance: 0, retired: 0 },
+  handovers_due: [],
+  returns_today: [],
+  returns_tomorrow: [],
+  overdue: [],
+  pending_requests: [],
+};
+
+test("dashboard opens the customer request queue with one action", async ({ page }) => {
+  let requestFilterSeen = false;
+  await page.route(/\/api\/admin\/dashboard\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(dashboardFixture),
+    });
+  });
+  await page.route(/\/api\/admin\/orders\?.*$/, async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("requests") === "true") requestFilterSeen = true;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ items: [orderFixture], total: 1, limit: 100, offset: 0 }),
+    });
+  });
+
+  await page.goto("/admin");
+  await page.getByRole("button", { name: "Войти в demo-панель" }).click();
+  await expect(page.getByRole("heading", { name: "Операционная сводка" })).toBeVisible();
+  await expect(page.getByLabel("Состояние парка")).toContainText("В аренде1");
+  await page.getByRole("button", { name: /1 Запросы клиентов/ }).click();
+  await expect.poll(() => requestFilterSeen).toBe(true);
+  await expect(page.getByLabel("Статус", { exact: true })).toHaveValue("requests");
+});
+
 test("demo staff session opens a tenant-isolated catalog workspace", async ({ page }) => {
   await page.goto("/admin");
   await expect(
@@ -64,10 +112,9 @@ test("demo staff session opens a tenant-isolated catalog workspace", async ({ pa
   ).toBeVisible();
   await page.getByRole("button", { name: "Войти в demo-панель" }).click();
   await expect(page.getByRole("heading", { name: "Бережный свет · демо" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Сводка каталога" })).toContainText("модели");
+  await expect(page.getByRole("heading", { name: "Операционная сводка" })).toBeVisible();
   await page.getByLabel("Организация").selectOption({ label: "Солнечный дом · демо" });
   await expect(page.getByRole("heading", { name: "Солнечный дом · демо" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Сводка каталога" })).toContainText("приборы");
   await expect(page.getByText("DEMO-UFA-01", { exact: true })).toBeVisible();
   await expect(page.getByText("DEMO-KZN-01", { exact: true })).toHaveCount(0);
 });
