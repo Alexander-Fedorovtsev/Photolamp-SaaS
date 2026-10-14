@@ -5,6 +5,7 @@ import {
   adminOrderPageSchema,
   membershipSchema,
   operationsDashboardSchema,
+  teamSnapshotSchema,
 } from "./admin";
 
 const staffOrderFixture = {
@@ -175,5 +176,30 @@ describe("tenant admin contracts", () => {
     });
     expect(dashboard.counts.awaiting_confirmation).toBe(1);
     expect(JSON.stringify(dashboard)).not.toContain("phone");
+  });
+
+  it("validates a team directory without staff contacts", () => {
+    const team = teamSnapshotSchema.parse({
+      tenant_id: "d0000000-0000-0000-0000-000000000001",
+      can_manage: true,
+      members: [
+        {
+          user_id: "d5000000-0000-0000-0000-000000000001",
+          display_name: "Synthetic owner",
+          role: "owner",
+          state: "active",
+          is_current_user: true,
+          created_at: "2030-01-01T12:00:00+00:00",
+          updated_at: "2030-01-01T12:00:00+00:00",
+        },
+      ],
+    });
+    expect(team.members[0]?.role).toBe("owner");
+    expect(
+      teamSnapshotSchema.safeParse({
+        ...team,
+        members: [{ ...team.members[0], phone_e164: "+70000000000" }],
+      }).success,
+    ).toBe(false);
   });
 });

@@ -97,6 +97,10 @@ status, body = request(
 admin_catalog = json.loads(body)
 assert status == 200 and admin_catalog["tenant_id"] == tenant_id
 assert admin_catalog["role"] == "owner" and admin_catalog["assets"]
+status, body = request(f"{api_url}/api/v1/t/{tenant_id}/team", headers=authorization)
+team = json.loads(body)
+assert status == 200 and team["tenant_id"] == tenant_id and team["can_manage"] is True
+assert len(team["members"]) >= 3 and "phone" not in body
 assert (
     request(f"{api_url}/api/v1/auth/session", method="DELETE", headers=authorization)[0]
     == 200
@@ -105,5 +109,5 @@ assert get(f"{api_url}/openapi.json")[0] == 200
 assert get(f"{web_url}/manifest.webmanifest")[0] == 200
 print(
     "Stack smoke: readiness, two catalogs and quotes, blocked demo checkout, demo staff "
-    "session, tenant admin, auth boundary, unknown tenant, OpenAPI and manifest passed"
+    "session, tenant admin/team, auth boundary, unknown tenant, OpenAPI and manifest passed"
 )

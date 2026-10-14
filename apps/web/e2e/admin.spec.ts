@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import type { AdminOrder } from "../src/lib/admin";
+import type { AdminOrder, StaffMember } from "../src/lib/admin";
 
 const orderFixture = {
   order_id: "d9000000-0000-0000-0000-000000000001",
@@ -103,6 +103,69 @@ test("dashboard opens the customer request queue with one action", async ({ page
   await page.getByRole("button", { name: /1 Запросы клиентов/ }).click();
   await expect.poll(() => requestFilterSeen).toBe(true);
   await expect(page.getByLabel("Статус", { exact: true })).toHaveValue("requests");
+});
+
+test("owner can update a synthetic staff role without exposing contacts", async ({ page }) => {
+  const owner = {
+    user_id: "d5000000-0000-0000-0000-000000000001",
+    display_name: "Демо-владелец",
+    role: "owner",
+    state: "active",
+    is_current_user: true,
+    created_at: "2030-01-01T12:00:00+00:00",
+    updated_at: "2030-01-01T12:00:00+00:00",
+  } as const;
+  let operator: StaffMember = {
+    user_id: "d5000000-0000-0000-0000-000000000002",
+    display_name: "Демо-оператор",
+    role: "operator",
+    state: "active",
+    is_current_user: false,
+    created_at: "2030-01-01T12:00:00+00:00",
+    updated_at: "2030-01-01T12:00:00+00:00",
+  };
+  await page.route(/\/api\/admin\/team\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        tenant_id: dashboardFixture.tenant_id,
+        can_manage: true,
+        members: [owner, operator],
+      }),
+    });
+  });
+  await page.route(/\/api\/admin\/team\/[^?]+\?.*$/, async (route) => {
+    const body = route.request().postDataJSON() as {
+      display_name: string;
+      role: "owner" | "admin" | "operator" | "courier";
+      state: "active" | "disabled";
+    };
+    expect(body).toEqual({
+      display_name: "Демо-координатор",
+      role: "admin",
+      state: "disabled",
+    });
+    expect(JSON.stringify(body)).not.toContain("phone");
+    operator = {
+      ...operator,
+      ...body,
+      updated_at: "2030-01-01T12:05:00+00:00",
+    };
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(operator) });
+  });
+  page.on("dialog", (dialog) => void dialog.accept());
+
+  await page.goto("/admin");
+  await page.getByRole("button", { name: "Войти в demo-панель" }).click();
+  await expect(page.getByRole("heading", { name: "Команда и роли" })).toBeVisible();
+  const card = page.getByRole("article").filter({ hasText: "Демо-оператор" });
+  await card.getByLabel("Отображаемое имя").fill("Демо-координатор");
+  await card.getByLabel("Роль").selectOption("admin");
+  await card.getByLabel("Доступ").selectOption("disabled");
+  await card.getByRole("button", { name: "Сохранить права" }).click();
+  await expect(page.getByText("Изменения доступа сохранены и записаны в аудит.")).toBeVisible();
+  await expect(page.getByText("Демо-координатор", { exact: true })).toBeVisible();
+  await expect(page.getByText("Доступ отключён", { exact: true })).toBeVisible();
 });
 
 test("demo staff session opens a tenant-isolated catalog workspace", async ({ page }) => {
