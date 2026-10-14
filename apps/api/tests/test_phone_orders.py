@@ -57,6 +57,15 @@ async def clear_data(owner_url: str) -> None:
                     text(f"DELETE FROM {table} WHERE tenant_id = :tenant"),  # noqa: S608
                     {"tenant": TENANT_UFA},
                 )
+            await connection.execute(
+                text(
+                    "UPDATE assets SET state = CASE asset_code "
+                    "WHEN 'DEMO-UFA-02' THEN 'inspection' ELSE 'available' END, "
+                    "updated_at = now() WHERE tenant_id = :tenant "
+                    "AND asset_code IN ('DEMO-UFA-01', 'DEMO-UFA-02', 'DEMO-UFA-03')"
+                ),
+                {"tenant": TENANT_UFA},
+            )
     finally:
         await owner.dispose()
 
@@ -87,7 +96,7 @@ async def set_public_booking(owner_url: str, enabled: bool) -> None:
 
 
 @pytest.mark.integration
-async def test_phone_order_is_atomic_encrypted_idempotent_and_customer_linkable() -> None:
+async def test_phone_order_fulfillment_is_encrypted_audited_and_releases_inventory() -> None:
     runtime_url, owner_url = database_urls()
     owner = create_async_engine(owner_url)
     runtime = create_async_engine(runtime_url)
@@ -177,7 +186,7 @@ async def test_phone_order_is_atomic_encrypted_idempotent_and_customer_linkable(
                         await connection.execute(
                             text(
                                 "SELECT o.customer_id, o.checkout_session_id, o.source, "
-                                "ra.state AS allocation_state, c.phone_verified_at, "
+                                "ra.state AS allocation_state, ra.asset_id, c.phone_verified_at, "
                                 "cp.ciphertext AS customer_ciphertext, cp.nonce AS customer_nonce, "
                                 "op.ciphertext AS order_ciphertext, op.nonce AS order_nonce "
                                 "FROM orders o JOIN rental_allocations ra "
@@ -226,6 +235,181 @@ async def test_phone_order_is_atomic_encrypted_idempotent_and_customer_linkable(
                 assert event.event_type == "phone_order_created"
                 assert event.actor_staff_user_id is not None
 
+                contact_headers = {
+                    **headers,
+                    "Idempotency-Key": "synthetic-contact-access-0001",
+                }
+                cross_tenant_contact = await client.post(
+                    f"/api/v1/t/{TENANT_KAZAN}/orders/{order_id}/contact-access",
+                    headers=contact_headers,
+                )
+                assert cross_tenant_contact.status_code == 404
+                contact = await client.post(
+                    f"/api/v1/t/{TENANT_UFA}/orders/{order_id}/contact-access",
+                    headers=contact_headers,
+                )
+                assert contact.status_code == 200
+                assert contact.headers["cache-control"] == "no-store"
+                assert contact.json() == {
+                    "contact": {
+                        "phone_e164": SYNTHETIC_PHONE,
+                        "recipient_name": "Тестовый клиент",
+                        "delivery_address": None,
+                    },
+                    "replayed": False,
+                }
+                contact_replay = await client.post(
+                    f"/api/v1/t/{TENANT_UFA}/orders/{order_id}/contact-access",
+                    headers=contact_headers,
+                )
+                assert contact_replay.status_code == 200
+                assert contact_replay.json()["replayed"] is True
+
+                reused_contact_key = await client.post(
+                    f"/api/v1/t/{TENANT_UFA}/orders/{order_id}/handover",
+                    headers=contact_headers,
+                )
+                assert reused_contact_key.status_code == 409
+                handover_headers = {
+                    **headers,
+                    "Idempotency-Key": "synthetic-order-handover-0001",
+                }
+                handed_over = await client.post(
+                    f"/api/v1/t/{TENANT_UFA}/orders/{order_id}/handover",
+                    headers=handover_headers,
+                )
+                assert handed_over.status_code == 200
+                assert handed_over.json()["order"]["state"] == "in_progress"
+                assert handed_over.json()["order"]["handed_over_at"] is not None
+                bypass = await client.patch(
+                    f"/api/v1/t/{TENANT_UFA}/assets/{stored.asset_id}",
+                    headers=headers,
+                    json={"state": "available"},
+                )
+                assert bypass.status_code == 422
+                assert bypass.json()["detail"] == (
+                    "Asset state and assignment are controlled by its active order"
+                )
+                handover_replay = await client.post(
+                    f"/api/v1/t/{TENANT_UFA}/orders/{order_id}/handover",
+                    headers=handover_headers,
+                )
+                assert handover_replay.status_code == 200
+                assert handover_replay.json()["replayed"] is True
+
+                returned = await client.post(
+                    f"/api/v1/t/{TENANT_UFA}/orders/{order_id}/return",
+                    headers={
+                        **headers,
+                        "Idempotency-Key": "synthetic-order-return-0001",
+                    },
+                )
+                assert returned.status_code == 200
+                assert returned.json()["order"]["state"] == "returned"
+                assert returned.json()["order"]["returned_at"] is not None
+                inspected = await client.post(
+                    f"/api/v1/t/{TENANT_UFA}/orders/{order_id}/inspection",
+                    headers={
+                        **headers,
+                        "Idempotency-Key": "synthetic-order-inspection-0001",
+                    },
+                    json={"outcome": "passed"},
+                )
+                assert inspected.status_code == 200
+                assert inspected.json()["order"]["state"] == "completed"
+                assert inspected.json()["order"]["inspection_outcome"] == "passed"
+                contact_after_completion = await client.post(
+                    f"/api/v1/t/{TENANT_UFA}/orders/{order_id}/contact-access",
+                    headers={
+                        **headers,
+                        "Idempotency-Key": "synthetic-contact-after-completion-0001",
+                    },
+                )
+                assert contact_after_completion.status_code == 409
+
+                async with owner.begin() as connection:
+                    lifecycle = (
+                        await connection.execute(
+                            text(
+                                "SELECT o.state, o.inspection_outcome, "
+                                "ra.state AS allocation_state, "
+                                "a.state AS asset_state FROM orders o "
+                                "JOIN rental_allocations ra ON ra.id = o.allocation_id "
+                                "JOIN assets a ON a.id = ra.asset_id WHERE o.id = :order_id"
+                            ),
+                            {"order_id": order_id},
+                        )
+                    ).one()
+                    event_types: list[str] = list(
+                        (
+                            await connection.execute(
+                                text(
+                                    "SELECT event_type FROM order_events "
+                                    "WHERE order_id = :order_id "
+                                    "ORDER BY happened_at, event_type"
+                                ),
+                                {"order_id": order_id},
+                            )
+                        )
+                        .scalars()
+                        .all()
+                    )
+                assert lifecycle.state == "completed"
+                assert lifecycle.inspection_outcome == "passed"
+                assert lifecycle.allocation_state == "released"
+                assert lifecycle.asset_state == "available"
+                assert event_types.count("contact_accessed") == 1
+                assert {
+                    "phone_order_created",
+                    "order_handed_over",
+                    "order_returned",
+                    "order_inspection_completed",
+                }.issubset(event_types)
+
+                maintenance_created = await client.post(
+                    f"/api/v1/t/{TENANT_UFA}/orders/phone",
+                    headers={
+                        **headers,
+                        "Idempotency-Key": "synthetic-phone-order-maintenance-0001",
+                    },
+                    json=command,
+                )
+                assert maintenance_created.status_code == 201
+                maintenance_order_id = maintenance_created.json()["order"]["order_id"]
+                for action, key in (
+                    ("handover", "synthetic-maintenance-handover-0001"),
+                    ("return", "synthetic-maintenance-return-0001"),
+                ):
+                    response = await client.post(
+                        f"/api/v1/t/{TENANT_UFA}/orders/{maintenance_order_id}/{action}",
+                        headers={**headers, "Idempotency-Key": key},
+                    )
+                    assert response.status_code == 200
+                maintenance = await client.post(
+                    f"/api/v1/t/{TENANT_UFA}/orders/{maintenance_order_id}/inspection",
+                    headers={
+                        **headers,
+                        "Idempotency-Key": "synthetic-maintenance-inspection-0001",
+                    },
+                    json={"outcome": "maintenance_required"},
+                )
+                assert maintenance.status_code == 200
+                assert maintenance.json()["order"]["inspection_outcome"] == ("maintenance_required")
+                async with owner.begin() as connection:
+                    maintenance_states = (
+                        await connection.execute(
+                            text(
+                                "SELECT ra.state AS allocation_state, a.state AS asset_state "
+                                "FROM orders o JOIN rental_allocations ra "
+                                "ON ra.id = o.allocation_id "
+                                "JOIN assets a ON a.id = ra.asset_id WHERE o.id = :order_id"
+                            ),
+                            {"order_id": UUID(maintenance_order_id)},
+                        )
+                    ).one()
+                assert maintenance_states.allocation_state == "released"
+                assert maintenance_states.asset_state == "maintenance"
+
                 checkout = await client.post("/api/v1/r/demo-ufa/checkout/sessions")
                 requested = await client.post(
                     "/api/v1/r/demo-ufa/checkout/identity/otp/request",
@@ -246,9 +430,9 @@ async def test_phone_order_is_atomic_encrypted_idempotent_and_customer_linkable(
                     headers={"Authorization": f"Bearer {verified.json()['access_token']}"},
                 )
                 assert customer_orders.status_code == 200
-                assert customer_orders.json()["total"] == 1
+                assert customer_orders.json()["total"] == 2
                 assert customer_orders.json()["items"][0]["source"] == "phone"
-                assert customer_orders.json()["items"][0]["order_id"] == str(order_id)
+                assert customer_orders.json()["items"][0]["state"] == "completed"
 
         async with runtime.begin() as connection:
             assert (

@@ -410,6 +410,19 @@ async def patch_model(transaction: TenantTransaction, entity_id: UUID, command: 
 
 
 async def patch_asset(transaction: TenantTransaction, entity_id: UUID, command: AssetPatch) -> None:
+    require_catalog_editor(transaction)
+    controlled_by_order = await transaction.session.scalar(
+        text(
+            "SELECT EXISTS (SELECT 1 FROM rental_allocations ra JOIN orders o "
+            "ON o.tenant_id = ra.tenant_id AND o.id = ra.order_id "
+            "WHERE ra.tenant_id = :tenant_id AND ra.asset_id = :asset_id "
+            "AND ra.state = 'confirmed' "
+            "AND o.state IN ('confirmed', 'in_progress', 'returned'))"
+        ),
+        {"tenant_id": transaction.tenant_id, "asset_id": entity_id},
+    )
+    if controlled_by_order:
+        raise InvalidCatalogCommand("Asset state and assignment are controlled by its active order")
     await _patch_entity(
         transaction,
         table="assets",

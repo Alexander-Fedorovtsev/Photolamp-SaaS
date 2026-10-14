@@ -66,7 +66,15 @@ class CustomerOrder(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     order_id: UUID
-    state: Literal["held", "confirmed", "expired", "cancelled"]
+    state: Literal[
+        "held",
+        "confirmed",
+        "in_progress",
+        "returned",
+        "completed",
+        "expired",
+        "cancelled",
+    ]
     source: Literal["website", "phone"]
     start_date: date
     end_date: date

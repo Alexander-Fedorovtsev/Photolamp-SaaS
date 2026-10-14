@@ -94,7 +94,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "only their own privacy-minimized order history. Authorized staff order commands "
             "use immutable snapshots and auditable, idempotent state transitions. Staff can "
             "create phone orders with tenant-scoped encrypted contacts; demo tenants accept "
-            "only a fixed synthetic contact and do not send SMS."
+            "only a fixed synthetic contact and do not send SMS. Fulfillment commands cover "
+            "handover, return and inspection; contact decryption is separately authorized and "
+            "audited."
         ),
     )
     application.include_router(admin_router)
