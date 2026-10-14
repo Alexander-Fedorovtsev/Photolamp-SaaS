@@ -306,11 +306,16 @@ class StagingTopology(unittest.TestCase):
         changed["services"]["web"]["environment"]["API_INTERNAL_URL"] = (
             "http://api:8000"
         )
-        with self.assertRaisesRegex(ValueError, "Photolamp-specific API alias"):
+        with self.assertRaisesRegex(ValueError, "staging security"):
             self.validator.validate(changed)
         changed = copy.deepcopy(self.model)
         changed["services"]["api"]["networks"]["internal"]["aliases"] = []
-        with self.assertRaisesRegex(ValueError, "Photolamp-specific API alias"):
+        with self.assertRaisesRegex(ValueError, "staging security"):
+            self.validator.validate(changed)
+
+        changed = copy.deepcopy(self.model)
+        changed["services"]["web"]["environment"]["APP_ENV"] = "development"
+        with self.assertRaisesRegex(ValueError, "staging security"):
             self.validator.validate(changed)
 
     def test_rejects_default_credentials_or_unprotected_routes(self):

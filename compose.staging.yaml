@@ -83,6 +83,7 @@ services:
 
   web:
     environment:
+      APP_ENV: staging
       API_INTERNAL_URL: http://photolamp-test-backend:8000
     image: photolamp-test-web:${PHOTOLAMP_DEPLOY_SHA:?An exact CI-tested SHA is required}
     build:

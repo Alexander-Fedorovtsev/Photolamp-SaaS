@@ -64,3 +64,23 @@ test("web readiness checks the real API", async ({ request }) => {
   const revision = await version.json();
   expect(revision.git_sha).toBe(revision.api_git_sha);
 });
+
+test("browser security headers and admin origin guard are enforced", async ({ request }) => {
+  const home = await request.get("/");
+  expect(home.headers()["content-security-policy"]).toContain("frame-ancestors 'none'");
+  expect(home.headers()["strict-transport-security"]).toBe("max-age=31536000");
+  expect(home.headers()["cross-origin-opener-policy"]).toBe("same-origin");
+
+  const rejected = await request.post("/api/admin/session/login", {
+    headers: { Origin: "https://attacker.example" },
+    data: {},
+  });
+  expect(rejected.status()).toBe(403);
+  expect(await rejected.json()).toEqual({ detail: "Same-origin request required" });
+
+  const sameOrigin = await request.post("/api/admin/session/login", {
+    headers: { Origin: "http://localhost:3000" },
+    data: {},
+  });
+  expect(sameOrigin.status()).toBe(400);
+});

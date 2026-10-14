@@ -115,6 +115,8 @@ axe WCAG A/AA, reduced-motion и manifest. При наличии системн�
 ```bash
 cd apps/api
 uv sync --frozen
+uv export --frozen --no-dev --format requirements-txt --output-file /tmp/photolamp-api-runtime.txt
+uvx --from pip-audit==2.10.1 pip-audit --requirement /tmp/photolamp-api-runtime.txt
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy app migrations tests
@@ -145,8 +147,9 @@ Proxy-настройки Docker управляются облачной сред
 
 ## CI и дальнейшая работа
 
-GitHub Actions: frontend lint/format/types/unit/build/audit; backend lint/format/
-mypy/unit/integration/coverage и reversible migration; stack Docker build + real
+GitHub Actions: frontend lint/format/types/unit/build/audit; backend locked runtime
+dependency audit, lint/format/mypy/unit/integration/coverage и reversible migration;
+stack Docker build + real
 smoke + Playwright/axe + остановка Redis и восстановление. `quality-gate`
 успешен только при успехе frontend, backend, stack и infrastructure jobs. Последний
 проверяет CD gate, staging topology и настоящий Traefik/HTTPS/Basic Auth. Для защиты main можно назначить
@@ -199,6 +202,7 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 | Web `/admin` | Staff login и адаптивная tenant-панель через HttpOnly session proxy; demo-вход отдельно отключается в production |
 | Web `/admin/invite#token=…` | Клиентская активация одноразовой ссылки; fragment очищается до отправки формы |
 | Web `/api/admin/sessions[/{id}]` | Same-origin BFF для списка и отзыва с удалением cookie текущей сессии |
+| Web `/api/admin/*` mutations | Next.js proxy требует совпадающий `Origin`; staging/production staff cookie всегда `Secure` |
 | Web `/api/health/live` | 200 при живом web |
 | Web `/api/health/ready` | 200 при готовом API; иначе 503 |
 | API `/api/v1/version` | SHA текущего API-образа, no-store |
@@ -221,5 +225,6 @@ Tenant operations dashboard: `architecture/adr-0014-operations-dashboard.md`.
 Tenant staff directory and role controls: `architecture/adr-0015-tenant-staff-access.md`.
 Staff invitations and password authentication: `architecture/adr-0016-staff-invitations-auth.md`.
 Staff session inventory and revocation: `architecture/adr-0017-staff-session-management.md`.
+Production web and dependency security baseline: `architecture/adr-0018-production-security-baseline.md`.
 Реализованный landing: `product/landing-foundation.md`.
 Публикация staging и GitHub CD: `deployment.md`.

@@ -69,6 +69,12 @@ jobs:
           python-version: "3.12"
       - run: pip install uv==0.12.23
       - run: uv sync --frozen
+      - name: Audit Python runtime dependencies
+        run: |
+          uv export --frozen --no-dev --format requirements-txt \
+            --output-file "$RUNNER_TEMP/photolamp-api-runtime.txt"
+          uvx --from pip-audit==2.10.1 pip-audit \
+            --requirement "$RUNNER_TEMP/photolamp-api-runtime.txt"
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy app migrations tests

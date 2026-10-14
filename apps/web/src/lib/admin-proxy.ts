@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { apiInternalUrl } from "@/lib/api";
+import { secureSessionCookieRequired } from "@/lib/request-security";
 
 export const staffSessionCookie = "photolamp_staff_session";
 export const clientUserAgentHeader = "X-Photolamp-Client-User-Agent";
@@ -17,7 +18,7 @@ export async function storeStaffSession(request: NextRequest, token: string, exp
   if (!Number.isFinite(expires.getTime())) throw new Error("Invalid session expiry");
   (await cookies()).set(staffSessionCookie, token, {
     httpOnly: true,
-    secure: request.headers.get("x-forwarded-proto") === "https",
+    secure: secureSessionCookieRequired(request),
     sameSite: "strict",
     path: "/",
     expires,
