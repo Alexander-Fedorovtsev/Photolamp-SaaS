@@ -352,6 +352,15 @@ class StagingTopology(unittest.TestCase):
         ]
         self.assertEqual(serialized.replace("$$", "$"), AUTH)
 
+    def test_deploy_checks_contact_key_coverage_before_healthy_release(self):
+        deploy = (ROOT / "infra/scripts/deploy.sh").read_text()
+        coverage_check = "run --rm --no-deps contact-maintenance --dry-run"
+        self.assertIn(coverage_check, deploy)
+        self.assertLess(
+            deploy.index(coverage_check),
+            deploy.index("Healthy release"),
+        )
+
     def test_rejects_host_ports_and_shared_database_network(self):
         for service in [
             "api",

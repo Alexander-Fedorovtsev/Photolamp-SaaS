@@ -43,6 +43,8 @@ auth_password="$(read_env PHOTOLAMP_HEALTHCHECK_PASSWORD)"
 "${compose[@]}" up -d --wait --wait-timeout 90 postgres redis
 bash infra/scripts/prepare-backup-storage.sh
 "${compose[@]}" up -d --wait --wait-timeout 180
+# Reject a release whose keyring cannot decrypt every existing private row.
+"${compose[@]}" --profile maintenance run --rm --no-deps contact-maintenance --dry-run
 
 "${compose[@]}" exec -T web node -e \
   "fetch('http://127.0.0.1:3000/api/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
