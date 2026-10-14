@@ -77,7 +77,11 @@ assert version["api_git_sha"] == os.environ["PHOTOLAMP_DEPLOY_SHA"]
 '
 for path in / /admin /r/demo-ufa /r/demo-kazan; do curl "${curl_options[@]}" "$test_url$path" >/dev/null; done
 cookie_jar="$test_dir/admin-cookies"
-curl "${curl_options[@]}" -X POST -c "$cookie_jar" "$test_url/api/admin/session" | python3 -c '
+readonly public_origin='https://photolamp-test.anliwei.pro'
+[[ "$(curl "${curl_options[@]}" -X POST -H 'Origin: https://attacker.invalid' \
+  -o /dev/null -w '%{http_code}' "$test_url/api/admin/session" 2>/dev/null || true)" == 403 ]]
+curl "${curl_options[@]}" -X POST -H "Origin: $public_origin" \
+  -c "$cookie_jar" "$test_url/api/admin/session" | python3 -c '
 import json, sys
 session = json.load(sys.stdin)
 assert session == {"authenticated": True, "demo_only": True}
@@ -87,7 +91,8 @@ import json, sys
 memberships = json.load(sys.stdin)
 assert {item["slug"] for item in memberships} == {"demo-ufa", "demo-kazan"}
 '
-curl "${curl_options[@]}" -X DELETE -b "$cookie_jar" "$test_url/api/admin/session" >/dev/null
+curl "${curl_options[@]}" -X DELETE -H "Origin: $public_origin" \
+  -b "$cookie_jar" "$test_url/api/admin/session" >/dev/null
 [[ "$(curl --silent --show-error --max-time 10 --cacert "$STAGING_TEST_CERT_DIR/cert.pem" \
   -H 'Host: photolamp-test.anliwei.pro' --user 'demo-test:wrong' -o /dev/null -w '%{http_code}' "$test_url/")" == 401 ]]
 container_id="$("${compose[@]}" ps -q web)"

@@ -197,6 +197,11 @@ bcrypt и credentials, собирает образы с SHA, применяет 
 и совпадение SHA у **web и API**. Ошибка делает job красным; автоматический
 database downgrade/rollback отсутствует. Обновление может дать короткий перерыв.
 
+Web-контейнер получает явный `APP_ENV=staging`: staff cookies поэтому всегда
+`Secure`, независимо от наличия proxy header. Next.js выставляет CSP/HSTS и
+другие browser security headers, а изменяющие `/api/admin/*` запросы принимает
+только при совпадающем `Origin`. Это не включает SMS: provider остаётся disabled.
+
 Откройте:
 
 - <https://photolamp-test.anliwei.pro>

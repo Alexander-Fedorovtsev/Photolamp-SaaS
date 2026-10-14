@@ -88,6 +88,7 @@ services:
     image: photolamp-web:local
     build: ./apps/web
     environment:
+      APP_ENV: ${APP_ENV:-development}
       API_INTERNAL_URL: http://api:8000
     ports: ["127.0.0.1:3000:3000"]
     depends_on:

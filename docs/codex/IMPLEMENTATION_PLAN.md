@@ -273,3 +273,13 @@ User-Agent и fingerprint. Можно атомарно отозвать отде
 
 ### Критерии приёмки
 - система пригодна для пилота на реальных заявках.
+
+### Текущее состояние
+
+Добавлен первый production security baseline: известные уязвимости Python runtime
+проверяются в CI по committed lock-файлу, `cryptography` обновлена до исправленной
+50.x-линии, а frontend выставляет CSP/HSTS/COOP/CORP. Все изменяющие admin BFF
+запросы требуют совпадающий Origin, staff cookie всегда Secure в staging и
+production, staging topology проверяет явный environment. SMS остаётся отключённым.
+До реального пилота по-прежнему обязательны backup/restore drill, ротация ключей,
+retention, наблюдаемость, legal gate и отдельный production-контур.
