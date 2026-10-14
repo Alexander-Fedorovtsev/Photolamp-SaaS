@@ -67,11 +67,11 @@ class CustomerOrder(BaseModel):
 
     order_id: UUID
     state: Literal["held", "confirmed", "expired", "cancelled"]
-    source: Literal["website"]
+    source: Literal["website", "phone"]
     start_date: date
     end_date: date
     fulfillment: Fulfillment
-    expires_at: datetime
+    expires_at: datetime | None
     quote: Quote
     snapshot: OrderSnapshot
     identity_verified: Literal[True] = True

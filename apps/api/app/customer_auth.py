@@ -263,10 +263,12 @@ async def _verify_in_transaction(
 
     customer_id = await transaction.session.scalar(
         text(
-            "INSERT INTO customers (id, tenant_id, phone_lookup_hash, phone_last4) "
-            "VALUES (:id, :tenant_id, :phone_hash, :phone_last4) "
+            "INSERT INTO customers "
+            "(id, tenant_id, phone_lookup_hash, phone_last4, phone_verified_at) "
+            "VALUES (:id, :tenant_id, :phone_hash, :phone_last4, now()) "
             "ON CONFLICT (tenant_id, phone_lookup_hash) DO UPDATE "
-            "SET phone_last4 = EXCLUDED.phone_last4, updated_at = now() RETURNING id"
+            "SET phone_last4 = EXCLUDED.phone_last4, phone_verified_at = now(), "
+            "updated_at = now() RETURNING id"
         ),
         {
             "id": uuid4(),

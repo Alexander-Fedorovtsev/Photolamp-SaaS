@@ -17,6 +17,7 @@ from app.availability import Availability, Quote, QuoteRequest, calculate_quote,
 from app.catalog import PreviewTenant, PublicCatalog, load_public_catalog, preview_from_catalog
 from app.checkout import CheckoutSession, create_checkout_session
 from app.config import Settings
+from app.contact_crypto import ContactCipher
 from app.customer_auth import (
     CustomerIdentity,
     CustomerSession,
@@ -67,6 +68,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             socket_timeout=config.dependency_timeout_seconds,
         )
         application.state.engine = engine
+        application.state.config = config
+        application.state.contact_cipher = ContactCipher(
+            config.contact_encryption_key.get_secret_value()
+        )
         application.state.database = Database(engine)
         application.state.redis = redis
         application.state.sms_provider = build_sms_provider(config)
@@ -87,7 +92,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "with their hold. Customer OTP uses an explicit provider boundary; staging has no "
             "SMS provider, public confirmation and payments. Authenticated customers can read "
             "only their own privacy-minimized order history. Authorized staff order commands "
-            "use immutable snapshots and auditable, idempotent state transitions."
+            "use immutable snapshots and auditable, idempotent state transitions. Staff can "
+            "create phone orders with tenant-scoped encrypted contacts; demo tenants accept "
+            "only a fixed synthetic contact and do not send SMS."
         ),
     )
     application.include_router(admin_router)

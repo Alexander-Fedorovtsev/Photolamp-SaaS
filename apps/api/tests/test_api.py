@@ -175,6 +175,7 @@ def test_openapi_matches_catalog_contract(client: TestClient) -> None:
     assert "/api/v1/r/{tenant_slug}/me/orders" in schema["paths"]
     assert "/api/v1/r/{tenant_slug}/me/orders/{order_id}" in schema["paths"]
     assert "/api/v1/t/{tenant_id}/orders" in schema["paths"]
+    assert "/api/v1/t/{tenant_id}/orders/phone" in schema["paths"]
     assert "/api/v1/t/{tenant_id}/orders/{order_id}" in schema["paths"]
     assert "/api/v1/t/{tenant_id}/orders/{order_id}/confirm" in schema["paths"]
     assert "/api/v1/t/{tenant_id}/orders/{order_id}/cancel" in schema["paths"]
