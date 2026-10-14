@@ -28,6 +28,9 @@ logs. The API runtime must not receive database-owner credentials.
   profiles and order details in bounded transactions with row locks. Each update
   compares the old key version and ciphertext. A stopped run is resumed safely
   because completed rows already use the target version.
+- Every deployment runs the same database-wide coverage check after migrations
+  and before it declares the release healthy. A missing historical key therefore
+  fails CD even when no contact endpoint has been requested yet.
 - `contact_key_rotation_runs` records target/scope, state and row counts. It never
   stores ciphertext, plaintext, phone fragments or key material.
 - The host helper activates the new key and restarts the API before rotating old

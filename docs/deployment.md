@@ -200,10 +200,11 @@ CD не печатает ключи. Контактные ciphertext досту�
 tenant RLS-транзакции; staff-очередь не возвращает телефон, имя или адрес.
 
 Деплой проверяет конфигурацию, отсутствие published ports, isolated network,
-bcrypt и credentials, собирает образы с SHA, применяет forward migration и
-ожидает готовность. Снаружи проверяются сертификат HTTPS, Basic Auth, readiness
-и совпадение SHA у **web и API**. Ошибка делает job красным; автоматический
-database downgrade/rollback отсутствует. Обновление может дать короткий перерыв.
+bcrypt и credentials, собирает образы с SHA, применяет forward migration,
+проверяет покрытие всех contact ciphertext версиями keyring и ожидает готовность.
+Снаружи проверяются сертификат HTTPS, Basic Auth, readiness и совпадение SHA у
+**web и API**. Ошибка делает job красным; автоматический database
+downgrade/rollback отсутствует. Обновление может дать короткий перерыв.
 
 Web-контейнер получает явный `APP_ENV=staging`: staff cookies поэтому всегда
 `Secure`, независимо от наличия proxy header. Next.js выставляет CSP/HSTS и
