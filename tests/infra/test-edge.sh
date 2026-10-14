@@ -16,6 +16,10 @@ export BACKUP_ACTIVE_KEY_ID=v1
 export BACKUP_ENCRYPTION_KEYS
 backup_key_v1="$(openssl rand -hex 32)"
 BACKUP_ENCRYPTION_KEYS="{\"v1\":\"$backup_key_v1\"}"
+export CONTACT_ACTIVE_KEY_VERSION=1
+export CONTACT_ENCRYPTION_KEYS
+contact_key_v1="$(openssl rand -base64 32 | tr '+/' '-_')"
+CONTACT_ENCRYPTION_KEYS="{\"1\":\"$contact_key_v1\"}"
 # Public, synthetic test credentials. Do not use these in server configuration.
 # shellcheck disable=SC2016
 export TRAEFIK_BASIC_AUTH_USERS='demo-test:$2b$05$68B.eqKkR1S8P23Fevk9Luq2JPiasI8FL.MGS9GC37gS5LxTcoSFC'
@@ -98,6 +102,17 @@ assert {item["slug"] for item in memberships} == {"demo-ufa", "demo-kazan"}
 curl "${curl_options[@]}" -X DELETE -H "Origin: $public_origin" \
   -b "$cookie_jar" "$test_url/api/admin/session" >/dev/null
 
+# Exercise the isolated maintenance service and a real key-version transition.
+"${compose[@]}" --profile maintenance run --rm --no-deps contact-maintenance --dry-run | \
+  python3 -c 'import json,sys; assert json.load(sys.stdin)["target_key_version"] == 1'
+CONTACT_ACTIVE_KEY_VERSION=2
+contact_key_v2="$(openssl rand -base64 32 | tr '+/' '-_')"
+CONTACT_ENCRYPTION_KEYS="$(printf '{\"1\":\"%s\",\"2\":\"%s\"}' \
+  "$contact_key_v1" "$contact_key_v2")"
+export CONTACT_ACTIVE_KEY_VERSION CONTACT_ENCRYPTION_KEYS
+"${compose[@]}" --profile maintenance run --rm --no-deps contact-maintenance --target-version 2 | \
+  python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["remaining_non_active"] == 0'
+
 backup_dir="$test_dir/backups"
 backup_env="$test_dir/backup.env"
 mkdir -m 0700 "$backup_dir"
@@ -108,6 +123,8 @@ mkdir -m 0700 "$backup_dir"
   printf 'TRAEFIK_BASIC_AUTH_USERS=\047%s\047\n' "$TRAEFIK_BASIC_AUTH_USERS"
   printf 'BACKUP_ACTIVE_KEY_ID=%s\n' "$BACKUP_ACTIVE_KEY_ID"
   printf 'BACKUP_ENCRYPTION_KEYS=\047%s\047\n' "$BACKUP_ENCRYPTION_KEYS"
+  printf 'CONTACT_ACTIVE_KEY_VERSION=%s\n' "$CONTACT_ACTIVE_KEY_VERSION"
+  printf 'CONTACT_ENCRYPTION_KEYS=\047%s\047\n' "$CONTACT_ENCRYPTION_KEYS"
   printf 'STAGING_TEST_EDGE_NETWORK=%s\n' "$STAGING_TEST_EDGE_NETWORK"
   printf 'STAGING_TEST_CERT_DIR=%s\n' "$STAGING_TEST_CERT_DIR"
   printf 'STAGING_TEST_DATA_DIR=%s\n' "$STAGING_TEST_DATA_DIR"
@@ -149,4 +166,4 @@ docker inspect --format '{{ index .Config.Labels "traefik.http.middlewares.photo
 import os, sys
 assert sys.stdin.read().strip() == os.environ["TRAEFIK_BASIC_AUTH_USERS"]
 '
-echo 'Staging edge passed: verified TLS, Basic Auth 401/200, catalogs, admin session, intact bcrypt and exact web/API SHA'
+echo 'Staging edge passed: TLS, auth, catalogs, admin, contact rotation, backup restore and exact SHA'

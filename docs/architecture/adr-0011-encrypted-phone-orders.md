@@ -52,8 +52,8 @@ Database theft alone does not reveal contact plaintext when the application key
 is stored separately. RLS and authenticated encryption provide independent
 tenant-bound controls.
 
-ADR 0012 adds a narrow, audited screen and command that decrypt order contact
-details only during fulfillment. There is still no key rotation job, production
-staff authentication or real notification channel. Before real customers are
-accepted, the access policy needs operational review together with a documented
-key backup/rotation procedure, retention rules and secret management.
+ADR 0012 adds a narrow, audited screen and command that decrypts order contact
+details only during fulfillment. ADR 0020 adds versioned keys and resumable
+re-encryption. Before real customers are accepted, the access policy still needs
+operational review together with off-host key custody, retention rules, secret
+management and the legal production gate.

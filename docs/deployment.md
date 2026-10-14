@@ -78,11 +78,12 @@ nano .env
 - `PHOTOLAMP_HEALTHCHECK_PASSWORD`: тот же пароль, в одинарных кавычках.
 - `TRAEFIK_CERT_RESOLVER=myresolver` либо фактическое имя resolver SelfOS.
 
-`CONTACT_ENCRYPTION_KEY` и `OTP_PEPPER` пока можно не добавлять: staging API
-разрешает только жёстко заданный синтетический контакт и использует явно
-документированные demo-значения. До приёма реальных контактов добавьте в `.env`
-уникальные значения по инструкции из `docs/development.md`, затем проведите
-отдельную проверку ротации и резервного восстановления ключа.
+`CONTACT_ACTIVE_KEY_VERSION` и `CONTACT_ENCRYPTION_KEYS` первый deploy добавляет
+атомарно. Существующий staging получает совместимую версию 1, чтобы не потерять
+доступ к прежним синтетическим строкам; новая установка получает случайный ключ.
+`OTP_PEPPER` пока можно не добавлять: staging принимает только фиксированный
+синтетический контакт. До реальных контактов сохраните весь contact keyring
+off-host и задайте уникальный `OTP_PEPPER`.
 
 `BACKUP_ACTIVE_KEY_ID` и `BACKUP_ENCRYPTION_KEYS` вручную генерировать не нужно:
 первый deploy атомарно добавит уникальный versioned keyring в `.env`, не печатая
@@ -247,6 +248,42 @@ docker compose -p photolamp-test --env-file .env -f compose.yaml -f compose.stag
 CD не использует `down --volumes`, Docker prune, git clean, замену `.env` или
 перезапуск Traefik. Отключение новых деплоев: `STAGING_DEPLOY_ENABLED=false`.
 Работающий сайт при этом продолжает обслуживаться.
+
+## Ротация ключей контактных данных
+
+Команда генерирует новый ключ, атомарно дополняет keyring, делает новую версию
+активной, перезапускает только API и пакетно перешифровывает приватные профили и
+детали заказов. Старые ключи сохраняются; plaintext не выводится и не записывается
+на диск. Запускайте от `photolamp-deploy` из актуального checkout:
+
+```bash
+cd /opt/photolamp-test
+bash infra/scripts/rotate-contact-key.sh 2
+```
+
+Если процесс прервался после активации ключа, API продолжает читать старые и новые
+строки и пишет только новой версией. Не создавайте ещё одну версию: завершите
+существующую напрямую, указав активную версию:
+
+```bash
+export PHOTOLAMP_DEPLOY_SHA="$(git rev-parse HEAD)"
+docker compose -p photolamp-test --env-file .env \
+  -f compose.yaml -f compose.staging.yaml --profile maintenance run --rm --no-deps \
+  contact-maintenance --target-version 2
+```
+
+Сначала сохраните обновлённые строки `CONTACT_ACTIVE_KEY_VERSION` и
+`CONTACT_ENCRYPTION_KEYS` в защищённом off-host password manager. После успешной
+ротации старый ключ можно удалить только helper-командой: она проверяет обе
+приватные таблицы и откажется, если версия ещё используется.
+
+```bash
+bash infra/scripts/retire-contact-key.sh 1
+```
+
+Не редактируйте keyring вручную и не публикуйте его в терминальных логах, GitHub,
+чатах или issue. История запусков в `contact_key_rotation_runs` содержит только
+версии, статусы и счётчики строк.
 
 ## Резервные копии и restore drill
 

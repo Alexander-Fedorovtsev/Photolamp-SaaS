@@ -11,7 +11,8 @@ x-staging-environment: &staging-environment
   CHECKOUT_MUTATION_RATE_LIMIT: ${CHECKOUT_MUTATION_RATE_LIMIT:-10}
   SMS_PROVIDER_MODE: disabled
   OTP_PEPPER: ${OTP_PEPPER:-local-synthetic-otp-pepper-change-me}
-  CONTACT_ENCRYPTION_KEY: ${CONTACT_ENCRYPTION_KEY:-cGhvdG9sYW1wLWxvY2FsLXN5bnRoZXRpYy1rZXktdjE=}
+  CONTACT_ACTIVE_KEY_VERSION: ${CONTACT_ACTIVE_KEY_VERSION:?Configure an active contact key version}
+  CONTACT_ENCRYPTION_KEYS: '${CONTACT_ENCRYPTION_KEYS:?Configure a versioned contact keyring}'
   OTP_TTL_SECONDS: ${OTP_TTL_SECONDS:-300}
   OTP_MAX_ATTEMPTS: ${OTP_MAX_ATTEMPTS:-5}
   OTP_REQUEST_RATE_LIMIT: ${OTP_REQUEST_RATE_LIMIT:-3}
@@ -95,6 +96,24 @@ services:
     tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+
+  contact-maintenance:
+    profiles: [maintenance]
+    image: photolamp-test-api:${PHOTOLAMP_DEPLOY_SHA:?An exact CI-tested SHA is required}
+    build: *api-build
+    environment:
+      APP_ENV: staging
+      ENABLE_DEMO_PREVIEWS: "true"
+      CONTACT_ACTIVE_KEY_VERSION: ${CONTACT_ACTIVE_KEY_VERSION:?Configure an active contact key version}
+      CONTACT_ENCRYPTION_KEYS: '${CONTACT_ENCRYPTION_KEYS:?Configure a versioned contact keyring}'
+      DATABASE_URL: postgresql+asyncpg://photolamp_runtime:${POSTGRES_RUNTIME_PASSWORD:?Configure a staging runtime database password}@postgres:5432/${POSTGRES_DB:-photolamp}
+      DATABASE_OWNER_URL: postgresql+asyncpg://${POSTGRES_USER:-photolamp}:${POSTGRES_PASSWORD:?Configure a staging database password}@postgres:5432/${POSTGRES_DB:-photolamp}
+      REDIS_URL: redis://redis:6379/0
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [internal]
 
   web:
     environment:

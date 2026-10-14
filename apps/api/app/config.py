@@ -1,9 +1,12 @@
-import base64
-import binascii
 from typing import Literal
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.contact_crypto import parse_contact_keyring
+
+LOCAL_CONTACT_KEY = "cGhvdG9sYW1wLWxvY2FsLXN5bnRoZXRpYy1rZXktdjE="
+LOCAL_CONTACT_KEYRING = '{"1":"' + LOCAL_CONTACT_KEY + '"}'
 
 
 class Settings(BaseSettings):
@@ -29,7 +32,8 @@ class Settings(BaseSettings):
     checkout_mutation_rate_limit: int = Field(default=10, ge=1, le=100)
     sms_provider_mode: Literal["disabled", "memory"] = "disabled"
     otp_pepper: SecretStr = SecretStr("local-synthetic-otp-pepper-change-me")
-    contact_encryption_key: SecretStr = SecretStr("cGhvdG9sYW1wLWxvY2FsLXN5bnRoZXRpYy1rZXktdjE=")
+    contact_active_key_version: int = Field(default=1, ge=1, le=32767)
+    contact_encryption_keys: SecretStr = SecretStr(LOCAL_CONTACT_KEYRING)
     otp_ttl_seconds: int = Field(default=300, ge=120, le=600)
     otp_max_attempts: int = Field(default=5, ge=3, le=10)
     otp_request_rate_limit: int = Field(default=3, ge=1, le=20)
@@ -55,10 +59,7 @@ class Settings(BaseSettings):
         if self.app_env == "production":
             if self.enable_demo_previews:
                 raise ValueError("Demo previews must be disabled in production")
-            if (
-                self.contact_encryption_key.get_secret_value()
-                == "cGhvdG9sYW1wLWxvY2FsLXN5bnRoZXRpYy1rZXktdjE="
-            ):
+            if LOCAL_CONTACT_KEY in self.contact_encryption_keys.get_secret_value():
                 raise ValueError("Configure a production contact encryption key")
             if self.otp_pepper.get_secret_value() == "local-synthetic-otp-pepper-change-me":
                 raise ValueError("Configure a production phone lookup pepper")
@@ -70,15 +71,13 @@ class Settings(BaseSettings):
             and self.otp_pepper.get_secret_value() == "local-synthetic-otp-pepper-change-me"
         ):
             raise ValueError("Configure a non-development OTP pepper")
-        try:
-            contact_key = base64.urlsafe_b64decode(
-                self.contact_encryption_key.get_secret_value().encode()
-            )
-        except (binascii.Error, ValueError) as error:
-            raise ValueError("CONTACT_ENCRYPTION_KEY must be URL-safe base64") from error
-        if len(contact_key) != 32:
-            raise ValueError("CONTACT_ENCRYPTION_KEY must decode to exactly 32 bytes")
+        keyring = parse_contact_keyring(self.contact_encryption_keys.get_secret_value())
+        if self.contact_active_key_version not in keyring:
+            raise ValueError("CONTACT_ENCRYPTION_KEYS must contain the active key version")
         return self
+
+    def contact_keyring(self) -> dict[int, str]:
+        return parse_contact_keyring(self.contact_encryption_keys.get_secret_value())
 
     def migration_database_url(self) -> str:
         """Owner credentials are available only to bootstrap/migration processes."""

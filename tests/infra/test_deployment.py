@@ -316,6 +316,10 @@ class StagingTopology(unittest.TestCase):
             "POSTGRES_RUNTIME_PASSWORD": "b" * 64,
             "BACKUP_ACTIVE_KEY_ID": "v1",
             "BACKUP_ENCRYPTION_KEYS": json.dumps({"v1": "c" * 64}),
+            "CONTACT_ACTIVE_KEY_VERSION": "1",
+            "CONTACT_ENCRYPTION_KEYS": json.dumps(
+                {"1": "cGhvdG9sYW1wLWxvY2FsLXN5bnRoZXRpYy1rZXktdjE="}
+            ),
             "TRAEFIK_BASIC_AUTH_USERS": AUTH,
         }
         result = subprocess.run(
@@ -357,6 +361,7 @@ class StagingTopology(unittest.TestCase):
             "db-bootstrap",
             "migrate",
             "backup-crypto",
+            "contact-maintenance",
         ]:
             changed = copy.deepcopy(self.model)
             changed["services"][service]["ports"] = [{"published": "8000"}]
@@ -402,6 +407,26 @@ class StagingTopology(unittest.TestCase):
             "must-not-reach-api"
         )
         with self.assertRaisesRegex(ValueError, "isolated"):
+            self.validator.validate(changed)
+
+    def test_contact_keys_are_versioned_and_maintenance_isolated(self):
+        changed = copy.deepcopy(self.model)
+        changed["services"]["api"]["environment"]["CONTACT_ACTIVE_KEY_VERSION"] = "2"
+        with self.assertRaisesRegex(ValueError, "versioned contact keyring"):
+            self.validator.validate(changed)
+
+        changed = copy.deepcopy(self.model)
+        changed["services"]["contact-maintenance"]["environment"][
+            "CONTACT_ENCRYPTION_KEYS"
+        ] = '{"1":"different-but-never-logged-value"}'
+        with self.assertRaisesRegex(ValueError, "must match"):
+            self.validator.validate(changed)
+
+        changed = copy.deepcopy(self.model)
+        changed["services"]["api"]["environment"]["DATABASE_OWNER_URL"] = (
+            "must-not-reach-api"
+        )
+        with self.assertRaisesRegex(ValueError, "must not receive database owner"):
             self.validator.validate(changed)
 
     def test_rejects_default_credentials_or_unprotected_routes(self):

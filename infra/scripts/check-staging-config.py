@@ -26,6 +26,7 @@ def validate(model: dict) -> None:
             "migrate",
             "api",
             "backup-crypto",
+            "contact-maintenance",
             "web",
         },
         "Unexpected staging services",
@@ -57,7 +58,7 @@ def validate(model: dict) -> None:
         and runtime_password != password,
         "Use a separate 64-character runtime database password",
     )
-    for name in ("api", "migrate", "db-bootstrap"):
+    for name in ("api", "migrate", "db-bootstrap", "contact-maintenance"):
         env = services[name]["environment"]
         require(
             env["APP_ENV"] == "staging"
@@ -69,7 +70,7 @@ def validate(model: dict) -> None:
             env["DATABASE_URL"] == expected_runtime_url,
             "Runtime database configuration does not match",
         )
-        if name in {"migrate", "db-bootstrap"}:
+        if name in {"migrate", "db-bootstrap", "contact-maintenance"}:
             expected_owner_url = f"postgresql+asyncpg://{database['POSTGRES_USER']}:{password}@postgres:5432/{database['POSTGRES_DB']}"
             require(
                 env.get("DATABASE_OWNER_URL") == expected_owner_url,
@@ -80,6 +81,45 @@ def validate(model: dict) -> None:
                 "DATABASE_OWNER_URL" not in env,
                 "API must not receive database owner credentials",
             )
+    contact_environment = services["api"]["environment"]
+    active_contact_version = str(
+        contact_environment.get("CONTACT_ACTIVE_KEY_VERSION", "")
+    )
+    try:
+        contact_keyring = json.loads(
+            contact_environment.get("CONTACT_ENCRYPTION_KEYS", "")
+        )
+    except json.JSONDecodeError:
+        contact_keyring = None
+    valid_contact_keys = (
+        isinstance(contact_keyring, dict)
+        and 1 <= len(contact_keyring) <= 8
+        and active_contact_version in contact_keyring
+        and all(
+            isinstance(version, str)
+            and version.isdecimal()
+            and version == str(int(version))
+            and 1 <= int(version) <= 32767
+            and isinstance(key, str)
+            and bool(re.fullmatch(r"[A-Za-z0-9_-]{43}=", key))
+            for version, key in contact_keyring.items()
+        )
+        and len(set(contact_keyring.values())) == len(contact_keyring)
+    )
+    require(valid_contact_keys, "Configure a valid versioned contact keyring")
+    require(
+        services["contact-maintenance"]["environment"].get("CONTACT_ACTIVE_KEY_VERSION")
+        == contact_environment.get("CONTACT_ACTIVE_KEY_VERSION")
+        and services["contact-maintenance"]["environment"].get(
+            "CONTACT_ENCRYPTION_KEYS"
+        )
+        == contact_environment.get("CONTACT_ENCRYPTION_KEYS")
+        and all(
+            "CONTACT_ENCRYPTION_KEY" not in services[name].get("environment", {})
+            for name in services
+        ),
+        "Contact keyring must match the isolated maintenance process",
+    )
     backup_environment = services["backup-crypto"]["environment"]
     active_backup_key = backup_environment.get("BACKUP_ACTIVE_KEY_ID", "")
     try:
@@ -147,7 +187,14 @@ def validate(model: dict) -> None:
         model["networks"]["internal"]["internal"] is True,
         "Private network must be internal",
     )
-    for name in ("api", "web", "migrate", "db-bootstrap", "backup-crypto"):
+    for name in (
+        "api",
+        "web",
+        "migrate",
+        "db-bootstrap",
+        "backup-crypto",
+        "contact-maintenance",
+    ):
         sha = services[name]["build"]["args"]["PHOTOLAMP_DEPLOY_SHA"]
         require(
             bool(re.fullmatch(r"[a-f0-9]{40}", sha)), "Images require an exact Git SHA"
@@ -159,8 +206,9 @@ def validate(model: dict) -> None:
     require(
         services["api"]["image"]
         == services["migrate"]["image"]
-        == services["backup-crypto"]["image"],
-        "API, migration and backup cryptography must use the same image",
+        == services["backup-crypto"]["image"]
+        == services["contact-maintenance"]["image"],
+        "API and maintenance processes must use the same image",
     )
     require(
         services["postgres"]["volumes"][0]["source"]

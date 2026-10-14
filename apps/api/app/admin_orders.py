@@ -522,7 +522,7 @@ async def access_order_contact(
         raise OrderNotFound
     if row.state not in {"confirmed", "in_progress", "returned"}:
         raise OrderContactUnavailable
-    if row.ciphertext is None or row.nonce is None or row.key_version != 1:
+    if row.ciphertext is None or row.nonce is None:
         raise OrderContactUnavailable
     try:
         payload = cipher.decrypt(
