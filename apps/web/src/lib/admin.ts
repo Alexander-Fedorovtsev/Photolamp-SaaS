@@ -99,11 +99,11 @@ export const adminOrderSchema = z
   .object({
     order_id: uuidSchema,
     state: adminOrderStateSchema,
-    source: z.literal("website"),
+    source: z.enum(["website", "phone"]),
     snapshot: adminOrderSnapshotSchema,
     identity_verified: z.boolean(),
     payment_status: z.literal("not_started"),
-    expires_at: isoDateTimeSchema,
+    expires_at: isoDateTimeSchema.nullable(),
     confirmed_at: isoDateTimeSchema.nullable(),
     confirmed_by_staff_user_id: uuidSchema.nullable(),
     created_at: isoDateTimeSchema,

@@ -26,6 +26,22 @@ Adapter не отправляет SMS и не хранит номер; OTP до�
 Staging жёстко использует `disabled`, поэтому нельзя считать SMS настроенным по
 наличию endpoint в OpenAPI. Не вводите реальные номера в dev/staging.
 
+`CONTACT_ENCRYPTION_KEY` — URL-safe base64 от 32 случайных байт. Локальный и
+staging demo используют документированный синтетический ключ только потому, что
+API demo-tenant принимает исключительно `+70000000000`, имя `Тестовый клиент` и
+адрес `Тестовый адрес`. Перед включением реальных контактов задайте уникальные
+`CONTACT_ENCRYPTION_KEY` и `OTP_PEPPER`; production отклоняет синтетические
+значения при старте. Сгенерировать ключ можно без вывода других секретов:
+
+```bash
+python -c 'import base64,secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())'
+openssl rand -hex 32
+```
+
+Первая команда — для `CONTACT_ENCRYPTION_KEY`, вторая — для `OTP_PEPPER`.
+Смена encryption key требует отдельной ротации сохранённых ciphertext, поэтому
+нельзя просто заменить его в окружении с реальными данными.
+
 Пароль в `.env.example` — только local development. Если меняете пароль после
 первого запуска Postgres, volume хранит предыдущие credentials: обновите пароль
 в БД или сбросьте только ненужную локальную базу. В пароле для interpolated
@@ -153,6 +169,9 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 | API `GET /api/v1/r/{slug}/me` | Privacy-safe customer identity по bearer session |
 | API `GET /api/v1/r/{slug}/me/orders` | Ограниченная пагинацией история только владельца customer session |
 | API `GET /api/v1/r/{slug}/me/orders/{id}` | Privacy-safe карточка собственного заказа во всех текущих состояниях |
+| API `GET /api/v1/t/{tenant_id}/orders` | Tenant-scoped очередь owner/admin/operator без открытых контактов |
+| API `POST /api/v1/t/{tenant_id}/orders/phone` | Атомарный подтверждённый заказ оператора; контакты и адрес шифруются, demo принимает только фиксированный synthetic contact |
+| API `POST /api/v1/t/{tenant_id}/orders/{id}/{confirm,cancel}` | Idempotent staff-переход с actor audit и синхронным состоянием allocation |
 | API `POST /api/v1/t/{tenant_id}/assets/{asset_id}/blocks` | Tenant-scoped сервисная блокировка прибора с аудитом |
 | API `/docs`, `/openapi.json` | Реальная спецификация текущего API |
 | Web `/admin` | Адаптивная demo-панель с HttpOnly session proxy; не production-auth |
@@ -170,5 +189,7 @@ Availability и серверный quote: `architecture/adr-0005-availability-qu
 Анонимный checkout и draft orders: `architecture/adr-0007-anonymous-checkout-drafts.md`.
 Customer OTP/provider boundary: `architecture/adr-0008-customer-otp-boundary.md`.
 Customer order read model: `architecture/adr-0009-customer-order-read-model.md`.
+Staff order operations: `architecture/adr-0010-staff-order-operations.md`.
+Encrypted phone orders: `architecture/adr-0011-encrypted-phone-orders.md`.
 Реализованный landing: `product/landing-foundation.md`.
 Публикация staging и GitHub CD: `deployment.md`.

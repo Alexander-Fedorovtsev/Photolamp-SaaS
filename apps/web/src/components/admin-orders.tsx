@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   adminOrderPageSchema,
   adminOrderTransitionSchema,
   type AdminOrder,
   type AdminOrderPage,
   type AdminOrderState,
+  type AdminCatalog,
 } from "@/lib/admin";
 
 type OrderFilter = "all" | AdminOrderState;
@@ -57,10 +58,12 @@ async function responsePayload(response: Response) {
 export function AdminOrders({
   tenantId,
   timeZone,
+  catalog,
   onUnauthorized,
 }: {
   tenantId: string;
   timeZone: string;
+  catalog: AdminCatalog;
   onUnauthorized: () => void;
 }) {
   const [filter, setFilter] = useState<OrderFilter>("all");
@@ -161,6 +164,18 @@ export function AdminOrders({
         </div>
       </div>
 
+      <PhoneOrderForm
+        tenantId={tenantId}
+        timeZone={timeZone}
+        catalog={catalog}
+        onCreated={async () => {
+          setFilter("all");
+          await loadOrders();
+          setNotice("Синтетический заказ по телефону создан и подтверждён.");
+        }}
+        onUnauthorized={onUnauthorized}
+      />
+
       {notice && (
         <p className="admin-alert" role="status" aria-live="polite">
           {notice}
@@ -230,7 +245,7 @@ function OrderCard({
           </div>
           <div>
             <dt>Источник</dt>
-            <dd>Витрина сайта</dd>
+            <dd>{order.source === "phone" ? "Заказ по телефону" : "Витрина сайта"}</dd>
           </div>
           <div>
             <dt>Клиент</dt>
@@ -253,7 +268,7 @@ function OrderCard({
             <dd>Не подключена</dd>
           </div>
         </dl>
-        {order.state === "held" && (
+        {order.state === "held" && order.expires_at && (
           <p className="small">Hold действует до {formatDateTime(order.expires_at, timeZone)}.</p>
         )}
         {order.state === "confirmed" && order.confirmed_at && (
@@ -292,6 +307,195 @@ function OrderCard({
           </p>
         )}
       </div>
+    </details>
+  );
+}
+
+function localIsoDate(timeZone: string, offsetDays: number) {
+  const local = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone,
+  }).format(new Date());
+  const date = new Date(`${local}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
+}
+
+function PhoneOrderForm({
+  tenantId,
+  timeZone,
+  catalog,
+  onCreated,
+  onUnauthorized,
+}: {
+  tenantId: string;
+  timeZone: string;
+  catalog: AdminCatalog;
+  onCreated: () => Promise<void>;
+  onUnauthorized: () => void;
+}) {
+  const [fulfillment, setFulfillment] = useState<"pickup" | "delivery">("pickup");
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState("");
+  const publishedModels = useMemo(
+    () =>
+      catalog.models.filter(
+        (model) =>
+          model.publication_state === "published" &&
+          catalog.pricing.some(
+            (price) => price.equipment_model_id === model.id && price.state === "active",
+          ),
+      ),
+    [catalog.models, catalog.pricing],
+  );
+  const activeBranches = useMemo(
+    () =>
+      catalog.branches.filter(
+        (branch) =>
+          branch.state === "active" &&
+          (fulfillment === "pickup" ? branch.pickup_enabled : branch.delivery_enabled),
+      ),
+    [catalog.branches, fulfillment],
+  );
+  const startDate = localIsoDate(timeZone, 1);
+  const endDate = localIsoDate(timeZone, 3);
+  const available = publishedModels.length > 0 && activeBranches.length > 0;
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    setCreating(true);
+    setError("");
+    try {
+      const response = await fetch(
+        `/api/admin/orders/phone?tenant_id=${encodeURIComponent(tenantId)}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": `admin-phone-${crypto.randomUUID()}`,
+          },
+          body: JSON.stringify({
+            phone_e164: "+70000000000",
+            recipient_name: "Тестовый клиент",
+            delivery_address: fulfillment === "delivery" ? "Тестовый адрес" : null,
+            model_id: data.get("model_id"),
+            branch_id: data.get("branch_id"),
+            start_date: data.get("start_date"),
+            end_date: data.get("end_date"),
+            fulfillment,
+          }),
+        },
+      );
+      if (response.status === 401) {
+        onUnauthorized();
+        return;
+      }
+      const payload = await responsePayload(response);
+      if (!response.ok) {
+        const detail = (payload as { detail?: string | { msg?: string }[] }).detail;
+        const message = Array.isArray(detail) ? detail[0]?.msg : detail;
+        throw new Error(message ?? "Не удалось создать заказ");
+      }
+      adminOrderTransitionSchema.parse(payload);
+      await onCreated();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось создать заказ");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <details className="admin-phone-order">
+      <summary className="button primary">Новый заказ по телефону</summary>
+      <form onSubmit={(event) => void submit(event)}>
+        <div className="admin-phone-order-heading">
+          <div>
+            <h3>Оформление оператором</h3>
+            <p>Контакт и адрес шифруются. В demo разрешены только эти синтетические данные.</p>
+          </div>
+          <span className="status status-confirmed">SMS выключен</span>
+        </div>
+        <div className="admin-phone-order-grid">
+          <label>
+            Телефон
+            <input value="+70000000000" readOnly aria-readonly="true" />
+          </label>
+          <label>
+            Получатель
+            <input value="Тестовый клиент" readOnly aria-readonly="true" />
+          </label>
+          <label>
+            Модель
+            <select name="model_id" required disabled={!available}>
+              {publishedModels.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Филиал
+            <select name="branch_id" required disabled={!available}>
+              {activeBranches.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Начало
+            <input
+              name="start_date"
+              type="date"
+              min={startDate}
+              defaultValue={startDate}
+              required
+            />
+          </label>
+          <label>
+            Окончание
+            <input name="end_date" type="date" min={startDate} defaultValue={endDate} required />
+          </label>
+          <label>
+            Получение
+            <select
+              value={fulfillment}
+              onChange={(event) => setFulfillment(event.target.value as "pickup" | "delivery")}
+            >
+              <option value="pickup">Самовывоз</option>
+              <option value="delivery">Доставка</option>
+            </select>
+          </label>
+          {fulfillment === "delivery" && (
+            <label>
+              Адрес
+              <input value="Тестовый адрес" readOnly aria-readonly="true" />
+            </label>
+          )}
+        </div>
+        {!available && (
+          <p className="admin-security-note">
+            Нужны опубликованная модель и активный филиал с действующим тарифом.
+          </p>
+        )}
+        {error && (
+          <p className="admin-alert" role="alert">
+            {error}
+          </p>
+        )}
+        <button className="button primary" type="submit" disabled={creating || !available}>
+          {creating ? "Проверяем доступность…" : "Создать подтверждённый заказ"}
+        </button>
+        <p className="small">
+          Цена и свободный прибор проверяются сервером. Уведомление клиенту сейчас не отправляется.
+        </p>
+      </form>
     </details>
   );
 }

@@ -44,7 +44,7 @@ Multi-tenant SaaS-платформа для аренды фотоламп и д�
 - **Queue / jobs:** Redis + worker
 - **Infra:** Docker Compose (MVP), Traefik/Caddy or Nginx, object storage compatible with S3
 
-## Рабочая версия: landing + tenant catalog admin
+## Рабочая версия: landing + tenant operations
 
 Создана воспроизводимая основа: Next.js 16 + strict TypeScript, FastAPI/Python 3.12,
 SQLAlchemy, PostgreSQL 16, Redis 7, Alembic, Docker Compose, lint/format/typecheck,
@@ -61,17 +61,20 @@ python3 tests/e2e/smoke.py
 Панель синтетического арендодателя: <http://localhost:3000/admin>.
 API/OpenAPI: <http://localhost:8000/docs>.
 
-Только вымышленные публичные бренды; подтверждение заказа, SMS, платежи и телефон
+Только вымышленные публичные бренды; реальные SMS, платежи и production-auth
 оператора недоступны. Реализованы users/tenants/memberships, opaque session lookup,
 отдельная least-privilege роль PostgreSQL и FORCE RLS. Environment-gated demo-вход
 выдаёт короткую opaque session только синтетическому staff user; реальный SMS/OTP
 вход ещё не реализован. В адаптивной `/admin` можно просматривать tenant-scoped
-очередь и карточки заказов, подтверждать/отменять допустимые заявки, а также
+очередь и карточки заказов, создавать подтверждённый заказ по телефону на
+фиксированный синтетический контакт, подтверждать/отменять допустимые заявки, а также
 управлять филиалами, моделями, физическими приборами и тарифами; изменения
 аудируются и отражаются на demo-витрине. API умеет создать анонимную checkout capability,
 атомарный hold, истекающий draft order и local/test OTP identity без plaintext
 телефона; demo-витрины оставляют booking и настоящий SMS выключенными и не
-принимают заказы. Подтверждённая customer session может читать только собственную
+не принимают публичные заказы. Контакты телефонного заказа зашифрованы, поиск
+ограничен tenant-scoped HMAC, а RLS закрывает прямой cross-tenant доступ.
+Подтверждённая customer session может читать только собственную
 минимизированную историю заказов. Главная содержит полноценный
 адаптивный landing с лёгкой SVG-анимацией.
 
@@ -84,6 +87,7 @@ API/OpenAPI: <http://localhost:8000/docs>.
 - [Customer OTP и граница SMS-провайдера](docs/architecture/adr-0008-customer-otp-boundary.md)
 - [Клиентский read model заказов](docs/architecture/adr-0009-customer-order-read-model.md)
 - [Операционная очередь и переходы заказов](docs/architecture/adr-0010-staff-order-operations.md)
+- [Зашифрованные контакты и заказы по телефону](docs/architecture/adr-0011-encrypted-phone-orders.md)
 - [Реализованный landing и витрина](docs/product/landing-foundation.md)
 - [Демо photolamp-test.anliwei.pro и настройка Continuous Deployment](docs/deployment.md)
 
