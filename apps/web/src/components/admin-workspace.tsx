@@ -6,6 +6,7 @@ import { AdminOrders } from "@/components/admin-orders";
 import type { OrderFilter } from "@/components/admin-orders";
 import { AdminDashboard } from "@/components/admin-dashboard";
 import { AdminTeam } from "@/components/admin-team";
+import { AdminSessions } from "@/components/admin-sessions";
 import {
   adminCatalogSchema,
   membershipSchema,
@@ -336,6 +337,8 @@ export function AdminWorkspace() {
             {(currentTenant?.role === "owner" || currentTenant?.role === "admin") && (
               <AdminTeam tenantId={tenantId} onUnauthorized={clearSession} />
             )}
+
+            <AdminSessions onUnauthorized={clearSession} />
 
             <ModelSection catalog={catalog} busy={busy} mutate={mutate} />
             <AssetSection catalog={catalog} busy={busy} mutate={mutate} />

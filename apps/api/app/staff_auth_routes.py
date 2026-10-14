@@ -16,9 +16,17 @@ from app.staff_auth import (
     login_staff,
     redeem_invitation,
 )
+from app.staff_sessions import coarse_client_label
 from app.tenancy import database
 
 router = APIRouter(prefix="/api/v1/auth/staff", tags=["staff authentication"])
+
+
+def request_client_label(request: Request) -> str:
+    user_agent = request.headers.get("x-photolamp-client-user-agent")
+    if user_agent is None:
+        user_agent = request.headers.get("user-agent")
+    return coarse_client_label(user_agent)
 
 
 def settings(request: Request) -> Settings:
@@ -47,6 +55,7 @@ async def staff_login(
             db,
             command,
             session_ttl_seconds=config.staff_session_ttl_seconds,
+            client_label=request_client_label(request),
         )
     except InvalidStaffCredentials:
         raise HTTPException(
@@ -78,6 +87,7 @@ async def staff_invitation_redemption(
             db,
             command,
             session_ttl_seconds=config.staff_session_ttl_seconds,
+            client_label=request_client_label(request),
         )
     except InvalidStaffInvitation:
         raise HTTPException(

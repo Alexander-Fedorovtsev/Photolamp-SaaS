@@ -19,13 +19,14 @@ class DemoSession(BaseModel):
     demo_only: bool = True
 
 
-async def issue_demo_session(database: Database) -> DemoSession:
+async def issue_demo_session(database: Database, *, client_label: str) -> DemoSession:
     token = f"pl_{secrets.token_urlsafe(36)}"
     expires_at = datetime.now(UTC) + timedelta(hours=4)
     await database.issue_demo_session(
         session_id=uuid4(),
         token_hash=hashlib.sha256(token.encode()).digest(),
         expires_at=expires_at,
+        client_label=client_label,
     )
     return DemoSession(access_token=token, expires_at=expires_at)
 

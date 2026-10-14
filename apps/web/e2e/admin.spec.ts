@@ -255,6 +255,53 @@ test("owner creates a one-time staff link and invitee sets up access", async ({ 
   await page.waitForURL("/admin");
 });
 
+test("staff can review sessions, revoke one device and sign out everywhere", async ({ page }) => {
+  const currentSession = {
+    session_id: "d7000000-0000-0000-0000-000000000001",
+    client_label: "Chrome · Linux",
+    created_at: "2030-01-01T12:00:00+00:00",
+    last_seen_at: "2030-01-01T12:05:00+00:00",
+    expires_at: "2030-01-02T00:00:00+00:00",
+    is_current: true,
+  };
+  const otherSession = {
+    session_id: "d7000000-0000-0000-0000-000000000002",
+    client_label: "Safari · macOS",
+    created_at: "2030-01-01T10:00:00+00:00",
+    last_seen_at: "2030-01-01T11:00:00+00:00",
+    expires_at: "2030-01-01T22:00:00+00:00",
+    is_current: false,
+  };
+  let sessions = [currentSession, otherSession];
+  await page.route(/\/api\/admin\/sessions$/, async (route) => {
+    if (route.request().method() === "DELETE") {
+      sessions = [];
+      await route.fulfill({ contentType: "application/json", body: '{"revoked_count":1}' });
+      return;
+    }
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(sessions) });
+  });
+  await page.route(/\/api\/admin\/sessions\/[0-9a-f-]+$/, async (route) => {
+    expect(route.request().method()).toBe("DELETE");
+    sessions = [currentSession];
+    await route.fulfill({
+      contentType: "application/json",
+      body: '{"revoked":true,"revoked_current":false}',
+    });
+  });
+  page.on("dialog", (dialog) => void dialog.accept());
+
+  await page.goto("/admin");
+  await page.getByRole("button", { name: "Войти в demo-панель" }).click();
+  await expect(page.getByRole("heading", { name: "Активные сессии" })).toBeVisible();
+  await expect(page.getByText("Chrome · Linux", { exact: true })).toBeVisible();
+  const otherCard = page.getByRole("article").filter({ hasText: "Safari · macOS" });
+  await otherCard.getByRole("button", { name: "Завершить" }).click();
+  await expect(page.getByText("Safari · macOS", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Выйти на всех устройствах" }).click();
+  await expect(page.getByRole("heading", { name: "Вход в рабочее пространство." })).toBeVisible();
+});
+
 test("admin workspace is keyboard reachable and accessible", async ({ page }) => {
   await page.goto("/admin");
   await page.keyboard.press("Tab");

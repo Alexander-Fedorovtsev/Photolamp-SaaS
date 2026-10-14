@@ -649,6 +649,31 @@ h3 {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
 }
+.admin-session-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 22px;
+}
+.admin-session-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+}
+.admin-session-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.admin-session-card p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
 .admin-order-toolbar {
   display: flex;
   align-items: center;
@@ -1048,6 +1073,10 @@ h3 {
   }
   .admin-form-actions,
   .admin-invitation-link > div {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .admin-session-card {
     align-items: stretch;
     flex-direction: column;
   }

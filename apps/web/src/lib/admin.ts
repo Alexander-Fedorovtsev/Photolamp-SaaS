@@ -290,6 +290,21 @@ export const staffInvitationCreatedSchema = z
   })
   .strict();
 
+export const staffSessionSummarySchema = z
+  .object({
+    session_id: uuidSchema,
+    client_label: z.string().min(1).max(80),
+    created_at: isoDateTimeSchema,
+    last_seen_at: isoDateTimeSchema,
+    expires_at: isoDateTimeSchema,
+    is_current: z.boolean(),
+  })
+  .strict();
+
+export const staffSessionRevokedSchema = z
+  .object({ revoked: z.literal(true), revoked_current: z.boolean() })
+  .strict();
+
 export type Membership = z.infer<typeof membershipSchema>;
 export type AdminCatalog = z.infer<typeof adminCatalogSchema>;
 export type AdminOrder = z.infer<typeof adminOrderSchema>;
@@ -302,3 +317,4 @@ export type StaffMember = z.infer<typeof staffMemberSchema>;
 export type TeamSnapshot = z.infer<typeof teamSnapshotSchema>;
 export type StaffInvitationSummary = z.infer<typeof staffInvitationSummarySchema>;
 export type StaffInvitationCreated = z.infer<typeof staffInvitationCreatedSchema>;
+export type StaffSessionSummary = z.infer<typeof staffSessionSummarySchema>;

@@ -55,6 +55,8 @@ from app.orders import (
 from app.rate_limit import enforce_rate_limit
 from app.sms import build_sms_provider
 from app.staff_auth_routes import router as staff_auth_router
+from app.staff_session_routes import router as staff_session_router
+from app.staff_sessions import coarse_client_label
 from app.tenancy import (
     TenantContext,
     TenantSummary,
@@ -113,7 +115,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "and inventory without exposing customer contacts or asset identifiers."
             " Tenant owners can administer privacy-safe staff memberships and create expiring, "
             "one-time invitations. Staff choose a non-personal login and password at redemption; "
-            "SMS delivery, recovery and MFA remain disabled until their production stages."
+            "they can inventory and revoke their own privacy-minimized active sessions. SMS "
+            "delivery, recovery and MFA remain disabled until their production stages."
         ),
     )
     application.include_router(admin_router)
@@ -121,6 +124,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(admin_dashboard_router)
     application.include_router(admin_team_router)
     application.include_router(staff_auth_router)
+    application.include_router(staff_session_router)
 
     @application.exception_handler(IntegrityError)
     async def integrity_conflict(_request: object, _error: IntegrityError) -> JSONResponse:
@@ -611,13 +615,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response_model=DemoSession,
     )
     async def demo_session(
+        request: Request,
         response: Response,
         db: Annotated[Database, Depends(database)],
     ) -> DemoSession:
         if not config.enable_demo_previews or config.app_env == "production":
             raise HTTPException(status_code=404, detail="Demo session unavailable")
         response.headers["Cache-Control"] = "no-store"
-        return await issue_demo_session(db)
+        forwarded_user_agent = request.headers.get("x-photolamp-client-user-agent")
+        return await issue_demo_session(
+            db,
+            client_label=coarse_client_label(
+                forwarded_user_agent or request.headers.get("user-agent")
+            ),
+        )
 
     @application.delete(
         "/api/v1/auth/session",

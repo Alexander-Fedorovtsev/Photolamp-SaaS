@@ -187,6 +187,9 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 | API `DELETE /api/v1/t/{tenant_id}/team/invitations/{invitation_id}` | Owner отзывает неиспользованное приглашение и блокирует invited membership |
 | API `POST /api/v1/auth/staff/invitations/redeem` | Атомарная активация ссылки, выбор login/scrypt password и выдача opaque session |
 | API `POST /api/v1/auth/staff/login` | Повторный staff login с generic errors, rate limit и временной блокировкой |
+| API `GET /api/v1/auth/staff/sessions` | Privacy-safe список собственных активных сессий без IP, полного User-Agent и token hash |
+| API `DELETE /api/v1/auth/staff/sessions/{session_id}` | Отзыв одной принадлежащей identity сессии; чужая сессия выглядит как 404 |
+| API `DELETE /api/v1/auth/staff/sessions` | Атомарный отзыв всех password-сессий identity, включая текущую |
 | API `POST /api/v1/t/{tenant_id}/orders/phone` | Атомарный подтверждённый заказ оператора; контакты и адрес шифруются, demo принимает только фиксированный synthetic contact |
 | API `POST /api/v1/t/{tenant_id}/orders/{id}/{confirm,cancel}` | Idempotent staff-переход с actor audit и синхронным состоянием allocation |
 | API `POST /api/v1/t/{tenant_id}/orders/{id}/extension-requests/{request_id}/{approve,reject}` | Staff-решение с повторной проверкой availability и сохранением исходного snapshot |
@@ -195,6 +198,7 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 | API `/docs`, `/openapi.json` | Реальная спецификация текущего API |
 | Web `/admin` | Staff login и адаптивная tenant-панель через HttpOnly session proxy; demo-вход отдельно отключается в production |
 | Web `/admin/invite#token=…` | Клиентская активация одноразовой ссылки; fragment очищается до отправки формы |
+| Web `/api/admin/sessions[/{id}]` | Same-origin BFF для списка и отзыва с удалением cookie текущей сессии |
 | Web `/api/health/live` | 200 при живом web |
 | Web `/api/health/ready` | 200 при готовом API; иначе 503 |
 | API `/api/v1/version` | SHA текущего API-образа, no-store |
@@ -216,5 +220,6 @@ Extensions, overdue and notification outbox: `architecture/adr-0013-order-reques
 Tenant operations dashboard: `architecture/adr-0014-operations-dashboard.md`.
 Tenant staff directory and role controls: `architecture/adr-0015-tenant-staff-access.md`.
 Staff invitations and password authentication: `architecture/adr-0016-staff-invitations-auth.md`.
+Staff session inventory and revocation: `architecture/adr-0017-staff-session-management.md`.
 Реализованный landing: `product/landing-foundation.md`.
 Публикация staging и GitHub CD: `deployment.md`.

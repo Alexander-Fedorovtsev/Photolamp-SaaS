@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { apiInternalUrl } from "@/lib/api";
-import { storeStaffSession } from "@/lib/admin-proxy";
+import { forwardedClientHeaders, storeStaffSession } from "@/lib/admin-proxy";
 
 const loginPattern = /^[a-z][a-z0-9._-]{3,31}$/;
 
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
   }
   const response = await fetch(`${apiInternalUrl()}/api/v1/auth/staff/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...forwardedClientHeaders(request) },
     body: JSON.stringify({ login_name: loginName, password: body.password }),
     cache: "no-store",
   });

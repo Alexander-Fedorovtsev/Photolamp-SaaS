@@ -4,6 +4,13 @@ import { NextResponse } from "next/server";
 import { apiInternalUrl } from "@/lib/api";
 
 export const staffSessionCookie = "photolamp_staff_session";
+export const clientUserAgentHeader = "X-Photolamp-Client-User-Agent";
+
+export function forwardedClientHeaders(request: NextRequest) {
+  return {
+    [clientUserAgentHeader]: (request.headers.get("user-agent") ?? "").slice(0, 512),
+  };
+}
 
 export async function storeStaffSession(request: NextRequest, token: string, expiresAt: string) {
   const expires = new Date(expiresAt);
