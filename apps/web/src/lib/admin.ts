@@ -202,9 +202,60 @@ export const adminOrderContactAccessSchema = z
   })
   .strict();
 
+const dashboardOrderSchema = z
+  .object({
+    order_id: uuidSchema,
+    state: adminOrderStateSchema,
+    source: z.enum(["website", "phone"]),
+    model_name: z.string().min(1),
+    branch_name: z.string().min(1),
+    start_date: isoDateSchema,
+    end_date: isoDateSchema,
+    fulfillment: z.enum(["pickup", "delivery"]),
+    overdue_days: z.number().int().nonnegative(),
+    pending_request_types: z.array(z.enum(["extension", "return"])),
+  })
+  .strict();
+
+export const operationsDashboardSchema = z
+  .object({
+    tenant_id: uuidSchema,
+    timezone: z.string().min(1),
+    local_date: isoDateSchema,
+    generated_at: isoDateTimeSchema,
+    counts: z
+      .object({
+        awaiting_confirmation: z.number().int().nonnegative(),
+        handovers_due: z.number().int().nonnegative(),
+        returns_today: z.number().int().nonnegative(),
+        returns_tomorrow: z.number().int().nonnegative(),
+        overdue: z.number().int().nonnegative(),
+        inspection: z.number().int().nonnegative(),
+        pending_requests: z.number().int().nonnegative(),
+      })
+      .strict(),
+    inventory: z
+      .object({
+        available: z.number().int().nonnegative(),
+        rented: z.number().int().nonnegative(),
+        inspection: z.number().int().nonnegative(),
+        maintenance: z.number().int().nonnegative(),
+        retired: z.number().int().nonnegative(),
+      })
+      .strict(),
+    handovers_due: z.array(dashboardOrderSchema),
+    returns_today: z.array(dashboardOrderSchema),
+    returns_tomorrow: z.array(dashboardOrderSchema),
+    overdue: z.array(dashboardOrderSchema),
+    pending_requests: z.array(dashboardOrderSchema),
+  })
+  .strict();
+
 export type Membership = z.infer<typeof membershipSchema>;
 export type AdminCatalog = z.infer<typeof adminCatalogSchema>;
 export type AdminOrder = z.infer<typeof adminOrderSchema>;
 export type AdminOrderPage = z.infer<typeof adminOrderPageSchema>;
 export type AdminOrderState = z.infer<typeof adminOrderStateSchema>;
 export type AdminOrderContact = z.infer<typeof adminOrderContactAccessSchema>["contact"];
+export type OperationsDashboard = z.infer<typeof operationsDashboardSchema>;
+export type DashboardOrder = z.infer<typeof dashboardOrderSchema>;

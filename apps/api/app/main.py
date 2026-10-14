@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 from sqlalchemy.exc import IntegrityError
 
+from app.admin_dashboard_routes import router as admin_dashboard_router
 from app.admin_order_routes import router as admin_order_router
 from app.admin_routes import router as admin_router
 from app.auth import DemoSession, SessionRevoked, issue_demo_session, revoke_session
@@ -106,11 +107,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "handover, return and inspection; contact decryption is separately authorized and "
             "audited. Active customers can request extensions and returns; staff decisions "
             "remain availability-safe. SMS notification jobs fail closed while the provider "
-            "is disabled."
+            "is disabled. A privacy-minimized tenant dashboard summarizes daily operations "
+            "and inventory without exposing customer contacts or asset identifiers."
         ),
     )
     application.include_router(admin_router)
     application.include_router(admin_order_router)
+    application.include_router(admin_dashboard_router)
 
     @application.exception_handler(IntegrityError)
     async def integrity_conflict(_request: object, _error: IntegrityError) -> JSONResponse:

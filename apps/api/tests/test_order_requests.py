@@ -224,6 +224,19 @@ async def test_extension_return_requests_overdue_and_blocked_notifications() -> 
                 assert return_replay.status_code == 201
                 assert return_replay.json()["replayed"] is True
 
+                request_queue = await client.get(
+                    f"/api/v1/t/{TENANT_UFA}/orders?requests=true", headers=staff
+                )
+                assert request_queue.status_code == 200
+                assert request_queue.json()["total"] == 1
+                assert request_queue.json()["items"][0]["order_id"] == str(order_id)
+                dashboard = await client.get(f"/api/v1/t/{TENANT_UFA}/dashboard", headers=staff)
+                assert dashboard.status_code == 200
+                assert dashboard.json()["counts"]["pending_requests"] == 1
+                attention = dashboard.json()["pending_requests"][0]
+                assert attention["pending_request_types"] == ["extension", "return"]
+                assert "phone_e164" not in dashboard.text
+
                 approved_headers = {
                     **staff,
                     "Idempotency-Key": "staff-extension-approve-0001",

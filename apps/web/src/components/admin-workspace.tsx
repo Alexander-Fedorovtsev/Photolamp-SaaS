@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { AdminOrders } from "@/components/admin-orders";
+import type { OrderFilter } from "@/components/admin-orders";
+import { AdminDashboard } from "@/components/admin-dashboard";
 import {
   adminCatalogSchema,
   membershipSchema,
@@ -37,12 +39,28 @@ export function AdminWorkspace() {
   const [catalog, setCatalog] = useState<AdminCatalog | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [dashboardRefresh, setDashboardRefresh] = useState(0);
+  const [orderTarget, setOrderTarget] = useState<{ filter: OrderFilter; version: number }>({
+    filter: "all",
+    version: 0,
+  });
 
   const clearSession = useCallback(() => {
     setCatalog(null);
     setMemberships([]);
     setTenantId("");
     setSession("anonymous");
+  }, []);
+
+  const refreshDashboard = useCallback(() => {
+    setDashboardRefresh((current) => current + 1);
+  }, []);
+
+  const openOrderQueue = useCallback((filter: OrderFilter) => {
+    setOrderTarget((current) => ({ filter, version: current.version + 1 }));
+    window.requestAnimationFrame(() => {
+      document.getElementById("orders-title")?.scrollIntoView({ behavior: "smooth" });
+    });
   }, []);
 
   const loadSession = useCallback(async () => {
@@ -246,32 +264,21 @@ export function AdminWorkspace() {
           <p className="admin-loading">Загружаем tenant-каталог…</p>
         ) : (
           <>
-            <section className="admin-metrics" aria-label="Сводка каталога">
-              <article>
-                <strong>{catalog.models.length}</strong>
-                <span>модели</span>
-              </article>
-              <article>
-                <strong>{catalog.assets.length}</strong>
-                <span>приборы</span>
-              </article>
-              <article>
-                <strong>
-                  {catalog.assets.filter((asset) => asset.state === "available").length}
-                </strong>
-                <span>доступны</span>
-              </article>
-              <article>
-                <strong>{catalog.branches.length}</strong>
-                <span>филиалы</span>
-              </article>
-            </section>
+            <AdminDashboard
+              tenantId={tenantId}
+              refreshKey={dashboardRefresh}
+              onUnauthorized={clearSession}
+              onOpenOrders={openOrderQueue}
+            />
 
             <AdminOrders
+              key={`${tenantId}:${orderTarget.version}`}
               tenantId={tenantId}
               timeZone={currentTenant?.timezone ?? "UTC"}
               catalog={catalog}
               onUnauthorized={clearSession}
+              initialFilter={orderTarget.filter}
+              onChanged={refreshDashboard}
             />
 
             <ModelSection catalog={catalog} busy={busy} mutate={mutate} />
