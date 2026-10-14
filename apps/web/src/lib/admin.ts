@@ -103,12 +103,43 @@ const adminOrderSnapshotSchema = z
   })
   .strict();
 
+const extensionRequestSchema = z
+  .object({
+    request_id: uuidSchema,
+    state: z.enum(["pending", "approved", "rejected"]),
+    original_end_date: isoDateSchema,
+    requested_end_date: isoDateSchema,
+    additional_days: z.number().int().positive(),
+    amount_minor: z.number().int().positive(),
+    currency: z.literal("RUB"),
+    requested_at: isoDateTimeSchema,
+    decided_at: isoDateTimeSchema.nullable(),
+    rejection_reason: z.enum(["availability_conflict", "manual_review"]).nullable(),
+  })
+  .strict();
+
+const returnRequestSchema = z
+  .object({
+    request_id: uuidSchema,
+    state: z.enum(["pending", "acknowledged", "rejected"]),
+    requested_date: isoDateSchema,
+    requested_at: isoDateTimeSchema,
+    decided_at: isoDateTimeSchema.nullable(),
+    rejection_reason: z.enum(["date_unavailable", "manual_review"]).nullable(),
+  })
+  .strict();
+
 export const adminOrderSchema = z
   .object({
     order_id: uuidSchema,
     state: adminOrderStateSchema,
     source: z.enum(["website", "phone"]),
     snapshot: adminOrderSnapshotSchema,
+    planned_end_date: isoDateSchema,
+    is_overdue: z.boolean(),
+    overdue_days: z.number().int().nonnegative(),
+    extension_request: extensionRequestSchema.nullable(),
+    return_request: returnRequestSchema.nullable(),
     identity_verified: z.boolean(),
     payment_status: z.literal("not_started"),
     expires_at: isoDateTimeSchema.nullable(),
@@ -138,6 +169,22 @@ export const adminOrderPageSchema = z
 export const adminOrderTransitionSchema = z
   .object({
     order: adminOrderSchema,
+    replayed: z.boolean(),
+  })
+  .strict();
+
+export const adminExtensionDecisionSchema = z
+  .object({
+    order: adminOrderSchema,
+    request: extensionRequestSchema,
+    replayed: z.boolean(),
+  })
+  .strict();
+
+export const adminReturnDecisionSchema = z
+  .object({
+    order: adminOrderSchema,
+    request: returnRequestSchema,
     replayed: z.boolean(),
   })
   .strict();

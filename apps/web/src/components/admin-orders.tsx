@@ -3,7 +3,9 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   adminOrderContactAccessSchema,
+  adminExtensionDecisionSchema,
   adminOrderPageSchema,
+  adminReturnDecisionSchema,
   adminOrderTransitionSchema,
   type AdminOrder,
   type AdminOrderContact,
@@ -12,7 +14,7 @@ import {
   type AdminCatalog,
 } from "@/lib/admin";
 
-type OrderFilter = "all" | AdminOrderState;
+type OrderFilter = "all" | "overdue" | AdminOrderState;
 
 const stateLabels: Record<AdminOrderState, string> = {
   held: "Ожидает подтверждения",
@@ -81,7 +83,8 @@ export function AdminOrders({
     setLoading(true);
     setNotice("");
     const query = new URLSearchParams({ tenant_id: tenantId });
-    if (filter !== "all") query.set("state", filter);
+    if (filter === "overdue") query.set("overdue", "true");
+    else if (filter !== "all") query.set("state", filter);
     try {
       const response = await fetch(`/api/admin/orders?${query}`, { cache: "no-store" });
       if (response.status === 401) {
@@ -166,6 +169,61 @@ export function AdminOrders({
     }
   }
 
+  async function decideRequest(
+    order: AdminOrder,
+    kind: "extension" | "pickup",
+    requestId: string,
+    decision: "approve" | "acknowledge" | "reject",
+  ) {
+    const action =
+      decision === "approve"
+        ? "одобрить продление"
+        : decision === "acknowledge"
+          ? "подтвердить запрос на возврат"
+          : "отклонить запрос";
+    if (!window.confirm(`Действительно ${action} для заказа ${order.order_id.slice(0, 8)}?`)) {
+      return;
+    }
+    setBusyOrderId(order.order_id);
+    setNotice("");
+    try {
+      const response = await fetch(
+        `/api/admin/orders/${encodeURIComponent(order.order_id)}/requests/${kind}/${encodeURIComponent(requestId)}/${decision}?tenant_id=${encodeURIComponent(tenantId)}`,
+        {
+          method: "POST",
+          headers: {
+            "Idempotency-Key": `admin-${kind}-${decision}-${crypto.randomUUID()}`,
+            ...(decision === "reject" ? { "Content-Type": "application/json" } : {}),
+          },
+          body: decision === "reject" ? JSON.stringify({ reason: "manual_review" }) : undefined,
+        },
+      );
+      if (response.status === 401) {
+        onUnauthorized();
+        return;
+      }
+      const payload = await responsePayload(response);
+      if (!response.ok) {
+        const detail = (payload as { detail?: string }).detail;
+        throw new Error(detail ?? "Не удалось обработать запрос");
+      }
+      if (kind === "extension") adminExtensionDecisionSchema.parse(payload);
+      else adminReturnDecisionSchema.parse(payload);
+      await loadOrders();
+      setNotice(
+        decision === "approve"
+          ? "Продление одобрено, период аренды и резерв обновлены."
+          : decision === "acknowledge"
+            ? "Запрос на возврат подтверждён."
+            : "Запрос отклонён.",
+      );
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Не удалось обработать запрос");
+    } finally {
+      setBusyOrderId("");
+    }
+  }
+
   return (
     <section className="admin-section admin-orders" aria-labelledby="orders-title">
       <div className="admin-section-heading">
@@ -187,6 +245,7 @@ export function AdminOrders({
             <option value="held">Ожидают подтверждения</option>
             <option value="confirmed">Подтверждены</option>
             <option value="in_progress">У клиента</option>
+            <option value="overdue">Просрочены</option>
             <option value="returned">На осмотре</option>
             <option value="completed">Завершены</option>
             <option value="expired">Истекли</option>
@@ -232,6 +291,7 @@ export function AdminOrders({
               timeZone={timeZone}
               busy={busyOrderId === order.order_id}
               onTransition={transition}
+              onRequestDecision={decideRequest}
               onUnauthorized={onUnauthorized}
             />
           ))}
@@ -247,6 +307,7 @@ function OrderCard({
   timeZone,
   busy,
   onTransition,
+  onRequestDecision,
   onUnauthorized,
 }: {
   order: AdminOrder;
@@ -258,6 +319,12 @@ function OrderCard({
     action: "confirm" | "cancel" | "handover" | "return" | "inspection",
     outcome?: "passed" | "maintenance_required",
   ) => Promise<void>;
+  onRequestDecision: (
+    order: AdminOrder,
+    kind: "extension" | "pickup",
+    requestId: string,
+    decision: "approve" | "acknowledge" | "reject",
+  ) => Promise<void>;
   onUnauthorized: () => void;
 }) {
   const [contact, setContact] = useState<AdminOrderContact | null>(null);
@@ -265,7 +332,7 @@ function OrderCard({
   const [contactLoading, setContactLoading] = useState(false);
   const canConfirm = order.state === "held" && order.identity_verified;
   const canCancel = order.state === "held" || order.state === "confirmed";
-  const period = `${formatDate(order.snapshot.start_date)} — ${formatDate(order.snapshot.end_date)}`;
+  const period = `${formatDate(order.snapshot.start_date)} — ${formatDate(order.planned_end_date)}`;
 
   async function revealContact() {
     setContactLoading(true);
@@ -307,7 +374,9 @@ function OrderCard({
     >
       <summary>
         <div className="admin-order-summary-main">
-          <span className={`status status-${order.state}`}>{stateLabels[order.state]}</span>
+          <span className={`status status-${order.is_overdue ? "overdue" : order.state}`}>
+            {order.is_overdue ? `Просрочен · ${order.overdue_days} дн.` : stateLabels[order.state]}
+          </span>
           <strong>{order.snapshot.model_name}</strong>
           <span>{period}</span>
         </div>
@@ -359,6 +428,116 @@ function OrderCard({
         )}
         {order.state === "in_progress" && order.handed_over_at && (
           <p className="small">Передан {formatDateTime(order.handed_over_at, timeZone)}.</p>
+        )}
+        {order.planned_end_date !== order.snapshot.end_date && (
+          <p className="admin-security-note">
+            Продлён до {formatDate(order.planned_end_date)}. Исходная дата возврата —{" "}
+            {formatDate(order.snapshot.end_date)}.
+          </p>
+        )}
+        {order.is_overdue && (
+          <p className="admin-alert" role="status">
+            Возврат просрочен на {order.overdue_days} дн. Свяжитесь с клиентом и согласуйте возврат
+            или продление.
+          </p>
+        )}
+        {order.extension_request && (
+          <div className="admin-request-panel">
+            <div>
+              <strong>Продление до {formatDate(order.extension_request.requested_end_date)}</strong>
+              <span>
+                +{order.extension_request.additional_days} дн. ·{" "}
+                {formatMoney(order.extension_request.amount_minor)}
+              </span>
+              <span className="small">Доплата рассчитана, но оплата ещё не подключена.</span>
+            </div>
+            {order.extension_request.state === "pending" ? (
+              <div className="admin-order-actions">
+                <button
+                  className="button primary"
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    void onRequestDecision(
+                      order,
+                      "extension",
+                      order.extension_request!.request_id,
+                      "approve",
+                    )
+                  }
+                >
+                  Проверить и одобрить
+                </button>
+                <button
+                  className="button secondary"
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    void onRequestDecision(
+                      order,
+                      "extension",
+                      order.extension_request!.request_id,
+                      "reject",
+                    )
+                  }
+                >
+                  Отклонить
+                </button>
+              </div>
+            ) : (
+              <span className="small">
+                {order.extension_request.state === "approved" ? "Одобрено" : "Отклонено"}
+              </span>
+            )}
+          </div>
+        )}
+        {order.return_request && (
+          <div className="admin-request-panel">
+            <div>
+              <strong>Запрос возврата · {formatDate(order.return_request.requested_date)}</strong>
+              <span className="small">
+                {order.return_request.state === "pending"
+                  ? "Ожидает ответа оператора"
+                  : order.return_request.state === "acknowledged"
+                    ? "Подтверждён"
+                    : "Отклонён"}
+              </span>
+            </div>
+            {order.return_request.state === "pending" && (
+              <div className="admin-order-actions">
+                <button
+                  className="button primary"
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    void onRequestDecision(
+                      order,
+                      "pickup",
+                      order.return_request!.request_id,
+                      "acknowledge",
+                    )
+                  }
+                >
+                  Подтвердить возврат
+                </button>
+                <button
+                  className="button secondary"
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    void onRequestDecision(
+                      order,
+                      "pickup",
+                      order.return_request!.request_id,
+                      "reject",
+                    )
+                  }
+                >
+                  Отклонить
+                </button>
+              </div>
+            )}
+          </div>
         )}
         {order.state === "returned" && order.returned_at && (
           <p className="small">Возвращён {formatDateTime(order.returned_at, timeZone)}.</p>

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, R
 
 from app.admin_orders import (
     ContactAccessResult,
+    ExtensionDecisionResult,
     InspectionRequest,
     OrderContactUnavailable,
     OrderNotFound,
@@ -14,12 +15,17 @@ from app.admin_orders import (
     OrderState,
     OrderTransitionConflict,
     OrderTransitionResult,
+    RequestDecision,
+    ReturnDecisionResult,
+    ReturnRequestDecision,
     StaffOrder,
     StaffOrderPage,
     access_order_contact,
     cancel_order,
     complete_order_inspection,
     confirm_order,
+    decide_extension_request,
+    decide_return_request,
     hand_over_order,
     list_staff_orders,
     load_staff_order,
@@ -50,12 +56,15 @@ async def staff_orders(
     response: Response,
     transaction: Transaction,
     state: Annotated[OrderState | None, Query()] = None,
+    overdue: Annotated[bool, Query()] = False,
     limit: Annotated[int, Query(ge=1, le=100)] = 25,
     offset: Annotated[int, Query(ge=0, le=10_000)] = 0,
 ) -> StaffOrderPage:
     response.headers["Cache-Control"] = "no-store"
     try:
-        return await list_staff_orders(transaction, state=state, limit=limit, offset=offset)
+        return await list_staff_orders(
+            transaction, state=state, overdue=overdue, limit=limit, offset=offset
+        )
     except OrderPermissionDenied as error:
         raise translate_order_error(error) from None
 
@@ -183,6 +192,98 @@ async def staff_complete_order_inspection(
     try:
         return await complete_order_inspection(
             transaction, order_id, idempotency_key, command.outcome
+        )
+    except (OrderPermissionDenied, OrderNotFound, OrderTransitionConflict) as error:
+        raise translate_order_error(error) from None
+
+
+@router.post(
+    "/{order_id}/extension-requests/{request_id}/approve",
+    response_model=ExtensionDecisionResult,
+)
+async def staff_approve_extension_request(
+    order_id: UUID,
+    request_id: UUID,
+    response: Response,
+    transaction: Transaction,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=16, max_length=128)],
+) -> ExtensionDecisionResult:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await decide_extension_request(
+            transaction, order_id, request_id, idempotency_key, approve=True
+        )
+    except (OrderPermissionDenied, OrderNotFound, OrderTransitionConflict) as error:
+        raise translate_order_error(error) from None
+
+
+@router.post(
+    "/{order_id}/extension-requests/{request_id}/reject",
+    response_model=ExtensionDecisionResult,
+)
+async def staff_reject_extension_request(
+    command: RequestDecision,
+    order_id: UUID,
+    request_id: UUID,
+    response: Response,
+    transaction: Transaction,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=16, max_length=128)],
+) -> ExtensionDecisionResult:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await decide_extension_request(
+            transaction,
+            order_id,
+            request_id,
+            idempotency_key,
+            approve=False,
+            rejection_reason=command.reason,
+        )
+    except (OrderPermissionDenied, OrderNotFound, OrderTransitionConflict) as error:
+        raise translate_order_error(error) from None
+
+
+@router.post(
+    "/{order_id}/pickup-requests/{request_id}/acknowledge",
+    response_model=ReturnDecisionResult,
+)
+async def staff_acknowledge_return_request(
+    order_id: UUID,
+    request_id: UUID,
+    response: Response,
+    transaction: Transaction,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=16, max_length=128)],
+) -> ReturnDecisionResult:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await decide_return_request(
+            transaction, order_id, request_id, idempotency_key, acknowledge=True
+        )
+    except (OrderPermissionDenied, OrderNotFound, OrderTransitionConflict) as error:
+        raise translate_order_error(error) from None
+
+
+@router.post(
+    "/{order_id}/pickup-requests/{request_id}/reject",
+    response_model=ReturnDecisionResult,
+)
+async def staff_reject_return_request(
+    command: ReturnRequestDecision,
+    order_id: UUID,
+    request_id: UUID,
+    response: Response,
+    transaction: Transaction,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=16, max_length=128)],
+) -> ReturnDecisionResult:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await decide_return_request(
+            transaction,
+            order_id,
+            request_id,
+            idempotency_key,
+            acknowledge=False,
+            rejection_reason=command.reason,
         )
     except (OrderPermissionDenied, OrderNotFound, OrderTransitionConflict) as error:
         raise translate_order_error(error) from None

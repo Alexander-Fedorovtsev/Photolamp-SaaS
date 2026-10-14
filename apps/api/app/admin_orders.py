@@ -3,7 +3,7 @@
 import hashlib
 import json
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 from uuid import UUID, uuid4
 
@@ -14,6 +14,15 @@ from app.capabilities import capability_digest
 from app.contact_crypto import ContactCipher, EncryptedContact
 from app.database import TenantTransaction
 from app.holds import expire_holds
+from app.order_requests import (
+    ExtensionRequestView,
+    ReturnRequestView,
+    cancel_planned_return_notifications,
+    extension_request_from_mapping,
+    plan_return_notifications,
+    queue_decision_notification,
+    return_request_from_mapping,
+)
 from app.orders import OrderSnapshot
 
 OrderState = Literal[
@@ -38,6 +47,11 @@ class StaffOrder(BaseModel):
     state: OrderState
     source: OrderSource
     snapshot: OrderSnapshot
+    planned_end_date: date
+    is_overdue: bool
+    overdue_days: int = Field(ge=0)
+    extension_request: ExtensionRequestView | None
+    return_request: ReturnRequestView | None
     identity_verified: bool
     payment_status: Literal["not_started"] = "not_started"
     expires_at: datetime | None
@@ -74,6 +88,34 @@ class InspectionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     outcome: InspectionOutcome
+
+
+class RequestDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Literal["availability_conflict", "manual_review"] = "manual_review"
+
+
+class ReturnRequestDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Literal["date_unavailable", "manual_review"] = "manual_review"
+
+
+class ExtensionDecisionResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    order: StaffOrder
+    request: ExtensionRequestView
+    replayed: bool
+
+
+class ReturnDecisionResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    order: StaffOrder
+    request: ReturnRequestView
+    replayed: bool
 
 
 class StaffOrderContact(BaseModel):
@@ -119,6 +161,19 @@ def _staff_order_from_row(row: object) -> StaffOrder:
         state=mapping["state"],
         source=mapping["source"],
         snapshot=OrderSnapshot.model_validate(mapping["order_snapshot"]),
+        planned_end_date=mapping["end_date"],
+        is_overdue=mapping["overdue_days"] > 0,
+        overdue_days=mapping["overdue_days"],
+        extension_request=(
+            extension_request_from_mapping(mapping["extension_request"])
+            if mapping["extension_request"] is not None
+            else None
+        ),
+        return_request=(
+            return_request_from_mapping(mapping["return_request"])
+            if mapping["return_request"] is not None
+            else None
+        ),
         identity_verified=mapping["phone_verified_at"] is not None,
         expires_at=mapping["expires_at"],
         confirmed_at=mapping["confirmed_at"],
@@ -135,10 +190,38 @@ def _staff_order_from_row(row: object) -> StaffOrder:
     )
 
 
+STAFF_ORDER_PROJECTION = """
+SELECT o.*, c.phone_verified_at,
+  CASE WHEN o.state = 'in_progress'
+    THEN GREATEST(((now() AT TIME ZONE b.timezone)::date - o.end_date), 0)
+    ELSE 0 END::integer AS overdue_days,
+  (SELECT jsonb_build_object(
+      'id', er.id, 'state', er.state, 'original_end_date', er.original_end_date,
+      'requested_end_date', er.requested_end_date, 'additional_days', er.additional_days,
+      'amount_minor', er.amount_minor, 'currency', er.currency,
+      'requested_at', er.requested_at, 'decided_at', er.decided_at,
+      'rejection_reason', er.rejection_reason)
+    FROM order_extension_requests er
+    WHERE er.tenant_id = o.tenant_id AND er.order_id = o.id
+    ORDER BY er.requested_at DESC, er.id DESC LIMIT 1) AS extension_request,
+  (SELECT jsonb_build_object(
+      'id', rr.id, 'state', rr.state, 'requested_date', rr.requested_date,
+      'requested_at', rr.requested_at, 'decided_at', rr.decided_at,
+      'rejection_reason', rr.rejection_reason)
+    FROM order_return_requests rr
+    WHERE rr.tenant_id = o.tenant_id AND rr.order_id = o.id
+    ORDER BY rr.requested_at DESC, rr.id DESC LIMIT 1) AS return_request
+FROM orders o
+LEFT JOIN customers c ON c.tenant_id = o.tenant_id AND c.id = o.customer_id
+JOIN branches b ON b.tenant_id = o.tenant_id AND b.id = o.branch_id
+"""
+
+
 async def list_staff_orders(
     transaction: TenantTransaction,
     *,
     state: OrderState | None,
+    overdue: bool,
     limit: int,
     offset: int,
 ) -> StaffOrderPage:
@@ -147,23 +230,28 @@ async def list_staff_orders(
     parameters = {
         "tenant_id": transaction.tenant_id,
         "state": state,
+        "overdue": overdue,
         "limit": limit,
         "offset": offset,
     }
     total = await transaction.session.scalar(
         text(
-            "SELECT count(*) FROM orders WHERE tenant_id = :tenant_id "
-            "AND (CAST(:state AS text) IS NULL OR state = CAST(:state AS text))"
+            "SELECT count(*) FROM orders o JOIN branches b "
+            "ON b.tenant_id = o.tenant_id AND b.id = o.branch_id "
+            "WHERE o.tenant_id = :tenant_id "
+            "AND (CAST(:state AS text) IS NULL OR o.state = CAST(:state AS text)) "
+            "AND (NOT :overdue OR (o.state = 'in_progress' "
+            "AND o.end_date < (now() AT TIME ZONE b.timezone)::date))"
         ),
         parameters,
     )
     rows: Sequence[object] = (
         await transaction.session.execute(
             text(
-                "SELECT o.*, c.phone_verified_at FROM orders o LEFT JOIN customers c "
-                "ON c.tenant_id = o.tenant_id AND c.id = o.customer_id "
-                "WHERE o.tenant_id = :tenant_id "
+                STAFF_ORDER_PROJECTION + " WHERE o.tenant_id = :tenant_id "
                 "AND (CAST(:state AS text) IS NULL OR o.state = CAST(:state AS text)) "
+                "AND (NOT :overdue OR (o.state = 'in_progress' "
+                "AND o.end_date < (now() AT TIME ZONE b.timezone)::date)) "
                 "ORDER BY o.created_at DESC, o.id DESC LIMIT :limit OFFSET :offset"
             ),
             parameters,
@@ -182,11 +270,7 @@ async def load_staff_order(transaction: TenantTransaction, order_id: UUID) -> St
     await expire_holds(transaction)
     row = (
         await transaction.session.execute(
-            text(
-                "SELECT o.*, c.phone_verified_at FROM orders o LEFT JOIN customers c "
-                "ON c.tenant_id = o.tenant_id AND c.id = o.customer_id "
-                "WHERE o.tenant_id = :tenant_id AND o.id = :order_id"
-            ),
+            text(STAFF_ORDER_PROJECTION + " WHERE o.tenant_id = :tenant_id AND o.id = :order_id"),
             {"tenant_id": transaction.tenant_id, "order_id": order_id},
         )
     ).one_or_none()
@@ -348,6 +432,7 @@ async def _command_was_replayed(
     event_type: str,
     *,
     inspection_outcome: InspectionOutcome | None = None,
+    request_id: UUID | None = None,
 ) -> bool:
     previous = (
         await transaction.session.execute(
@@ -365,6 +450,7 @@ async def _command_was_replayed(
         previous.order_id != order_id
         or previous.event_type != event_type
         or (inspection_outcome is not None and payload.get("outcome") != inspection_outcome)
+        or (request_id is not None and payload.get("request_id") != str(request_id))
     ):
         raise OrderTransitionConflict("Idempotency key was already used")
     return True
@@ -374,7 +460,7 @@ async def _record_event(
     transaction: TenantTransaction,
     order_id: UUID,
     event_type: str,
-    payload: dict[str, str],
+    payload: dict[str, str | int],
     key_hash: bytes,
 ) -> None:
     await transaction.session.execute(
@@ -508,6 +594,7 @@ async def hand_over_order(
             "user_id": transaction.user_id,
         },
     )
+    await plan_return_notifications(transaction, order_id)
     await _record_event(
         transaction,
         order_id,
@@ -555,6 +642,7 @@ async def return_order(
             "user_id": transaction.user_id,
         },
     )
+    await cancel_planned_return_notifications(transaction, order_id)
     await _record_event(
         transaction,
         order_id,
@@ -564,6 +652,281 @@ async def return_order(
     )
     return OrderTransitionResult(
         order=await load_staff_order(transaction, order_id), replayed=False
+    )
+
+
+async def decide_extension_request(
+    transaction: TenantTransaction,
+    order_id: UUID,
+    request_id: UUID,
+    idempotency_key: str,
+    *,
+    approve: bool,
+    rejection_reason: Literal["availability_conflict", "manual_review"] = "manual_review",
+) -> ExtensionDecisionResult:
+    require_order_operator(transaction)
+    key_hash = capability_digest(idempotency_key)
+    await _lock_command(transaction, key_hash)
+    event_type = "order_extension_approved" if approve else "order_extension_rejected"
+    replayed = await _command_was_replayed(
+        transaction, order_id, key_hash, event_type, request_id=request_id
+    )
+    if replayed:
+        request = (
+            await transaction.session.execute(
+                text(
+                    "SELECT * FROM order_extension_requests WHERE tenant_id = :tenant_id "
+                    "AND id = :request_id AND order_id = :order_id"
+                ),
+                {
+                    "tenant_id": transaction.tenant_id,
+                    "request_id": request_id,
+                    "order_id": order_id,
+                },
+            )
+        ).one_or_none()
+        if request is None:
+            raise OrderNotFound
+        return ExtensionDecisionResult(
+            order=await load_staff_order(transaction, order_id),
+            request=extension_request_from_mapping(request),
+            replayed=True,
+        )
+    row = (
+        await transaction.session.execute(
+            text(
+                "SELECT er.*, o.state AS order_state, o.allocation_id, ra.asset_id "
+                "FROM order_extension_requests er JOIN orders o "
+                "ON o.tenant_id = er.tenant_id AND o.id = er.order_id "
+                "JOIN rental_allocations ra ON ra.tenant_id = o.tenant_id "
+                "AND ra.id = o.allocation_id WHERE er.tenant_id = :tenant_id "
+                "AND er.id = :request_id AND er.order_id = :order_id "
+                "FOR UPDATE OF er, o, ra"
+            ),
+            {
+                "tenant_id": transaction.tenant_id,
+                "request_id": request_id,
+                "order_id": order_id,
+            },
+        )
+    ).one_or_none()
+    if row is None:
+        raise OrderNotFound
+    if row.state != "pending":
+        raise OrderTransitionConflict("Only a pending extension request can be decided")
+    if row.order_state != "in_progress":
+        raise OrderTransitionConflict("Only an active rental can be extended")
+    if approve:
+        conflict = await transaction.session.scalar(
+            text(
+                "SELECT EXISTS ("
+                "  SELECT 1 FROM asset_blocks ab WHERE ab.tenant_id = :tenant_id "
+                "  AND ab.asset_id = :asset_id AND ab.start_date <= :requested_end_date "
+                "  AND ab.end_date > :original_end_date"
+                ") OR EXISTS ("
+                "  SELECT 1 FROM rental_allocations other WHERE other.tenant_id = :tenant_id "
+                "  AND other.asset_id = :asset_id AND other.id <> :allocation_id "
+                "  AND other.start_date <= :requested_end_date "
+                "  AND other.end_date > :original_end_date "
+                "  AND (other.state = 'confirmed' OR "
+                "    (other.state = 'held' AND other.expires_at > now()))"
+                ")"
+            ),
+            {
+                "tenant_id": transaction.tenant_id,
+                "asset_id": row.asset_id,
+                "allocation_id": row.allocation_id,
+                "original_end_date": row.original_end_date,
+                "requested_end_date": row.requested_end_date,
+            },
+        )
+        if conflict:
+            raise OrderTransitionConflict(
+                "Requested extension conflicts with a future booking or asset block"
+            )
+        await transaction.session.execute(
+            text(
+                "UPDATE rental_allocations SET end_date = :end_date, updated_at = now() "
+                "WHERE tenant_id = :tenant_id AND id = :allocation_id AND state = 'confirmed'"
+            ),
+            {
+                "tenant_id": transaction.tenant_id,
+                "allocation_id": row.allocation_id,
+                "end_date": row.requested_end_date,
+            },
+        )
+        await transaction.session.execute(
+            text(
+                "UPDATE orders SET end_date = :end_date, updated_at = now() "
+                "WHERE tenant_id = :tenant_id AND id = :order_id"
+            ),
+            {
+                "tenant_id": transaction.tenant_id,
+                "order_id": order_id,
+                "end_date": row.requested_end_date,
+            },
+        )
+        await transaction.session.execute(
+            text(
+                "UPDATE order_extension_requests SET state = 'approved', decided_at = now(), "
+                "decided_by_staff_user_id = :user_id, updated_at = now() "
+                "WHERE tenant_id = :tenant_id AND id = :request_id"
+            ),
+            {
+                "tenant_id": transaction.tenant_id,
+                "request_id": request_id,
+                "user_id": transaction.user_id,
+            },
+        )
+        await cancel_planned_return_notifications(transaction, order_id)
+        await plan_return_notifications(transaction, order_id)
+        await queue_decision_notification(
+            transaction,
+            order_id=order_id,
+            customer_id=row.customer_id,
+            template="extension_approved",
+            request_id=request_id,
+        )
+    else:
+        await transaction.session.execute(
+            text(
+                "UPDATE order_extension_requests SET state = 'rejected', decided_at = now(), "
+                "decided_by_staff_user_id = :user_id, rejection_reason = :reason, "
+                "updated_at = now() WHERE tenant_id = :tenant_id AND id = :request_id"
+            ),
+            {
+                "tenant_id": transaction.tenant_id,
+                "request_id": request_id,
+                "user_id": transaction.user_id,
+                "reason": rejection_reason,
+            },
+        )
+        await queue_decision_notification(
+            transaction,
+            order_id=order_id,
+            customer_id=row.customer_id,
+            template="extension_rejected",
+            request_id=request_id,
+        )
+    await _record_event(
+        transaction,
+        order_id,
+        event_type,
+        {
+            "request_id": str(request_id),
+            "original_end_date": row.original_end_date.isoformat(),
+            "requested_end_date": row.requested_end_date.isoformat(),
+            "amount_minor": row.amount_minor,
+            **({} if approve else {"reason": rejection_reason}),
+        },
+        key_hash,
+    )
+    request = (
+        await transaction.session.execute(
+            text(
+                "SELECT * FROM order_extension_requests WHERE tenant_id = :tenant_id "
+                "AND id = :request_id"
+            ),
+            {"tenant_id": transaction.tenant_id, "request_id": request_id},
+        )
+    ).one()
+    return ExtensionDecisionResult(
+        order=await load_staff_order(transaction, order_id),
+        request=extension_request_from_mapping(request),
+        replayed=False,
+    )
+
+
+async def decide_return_request(
+    transaction: TenantTransaction,
+    order_id: UUID,
+    request_id: UUID,
+    idempotency_key: str,
+    *,
+    acknowledge: bool,
+    rejection_reason: Literal["date_unavailable", "manual_review"] = "manual_review",
+) -> ReturnDecisionResult:
+    require_order_operator(transaction)
+    key_hash = capability_digest(idempotency_key)
+    await _lock_command(transaction, key_hash)
+    event_type = "order_return_acknowledged" if acknowledge else "order_return_rejected"
+    replayed = await _command_was_replayed(
+        transaction, order_id, key_hash, event_type, request_id=request_id
+    )
+    if not replayed:
+        request = (
+            await transaction.session.execute(
+                text(
+                    "SELECT rr.*, o.state AS order_state FROM order_return_requests rr "
+                    "JOIN orders o ON o.tenant_id = rr.tenant_id AND o.id = rr.order_id "
+                    "WHERE rr.tenant_id = :tenant_id AND rr.id = :request_id "
+                    "AND rr.order_id = :order_id FOR UPDATE OF rr, o"
+                ),
+                {
+                    "tenant_id": transaction.tenant_id,
+                    "request_id": request_id,
+                    "order_id": order_id,
+                },
+            )
+        ).one_or_none()
+        if request is None:
+            raise OrderNotFound
+        if request.state != "pending":
+            raise OrderTransitionConflict("Only a pending return request can be decided")
+        if request.order_state != "in_progress":
+            raise OrderTransitionConflict("Only an active rental can schedule return")
+        state = "acknowledged" if acknowledge else "rejected"
+        await transaction.session.execute(
+            text(
+                "UPDATE order_return_requests SET state = :state, decided_at = now(), "
+                "decided_by_staff_user_id = :user_id, rejection_reason = :reason, "
+                "updated_at = now() WHERE tenant_id = :tenant_id AND id = :request_id"
+            ),
+            {
+                "tenant_id": transaction.tenant_id,
+                "request_id": request_id,
+                "user_id": transaction.user_id,
+                "state": state,
+                "reason": None if acknowledge else rejection_reason,
+            },
+        )
+        await queue_decision_notification(
+            transaction,
+            order_id=order_id,
+            customer_id=request.customer_id,
+            template="return_acknowledged" if acknowledge else "return_rejected",
+            request_id=request_id,
+        )
+        await _record_event(
+            transaction,
+            order_id,
+            event_type,
+            {
+                "request_id": str(request_id),
+                "requested_date": request.requested_date.isoformat(),
+                **({} if acknowledge else {"reason": rejection_reason}),
+            },
+            key_hash,
+        )
+    stored = (
+        await transaction.session.execute(
+            text(
+                "SELECT * FROM order_return_requests WHERE tenant_id = :tenant_id "
+                "AND id = :request_id AND order_id = :order_id"
+            ),
+            {
+                "tenant_id": transaction.tenant_id,
+                "request_id": request_id,
+                "order_id": order_id,
+            },
+        )
+    ).one_or_none()
+    if stored is None:
+        raise OrderNotFound
+    return ReturnDecisionResult(
+        order=await load_staff_order(transaction, order_id),
+        request=return_request_from_mapping(stored),
+        replayed=replayed,
     )
 
 

@@ -11,6 +11,10 @@ session can read only its own privacy-minimized order history. Staff order opera
 immutable snapshots, idempotent events and atomic `held` to `confirmed` or `cancelled`
 transitions. Fulfillment continues through handover, return and inspection while the asset
 moves through `rented` and `inspection`; contact decryption is a separate audited command.
+Verified customers can create extension and return requests for their own active order.
+Staff decisions preserve the immutable snapshot, recheck allocation conflicts and expose
+overdue as a derived branch-local fact. Notification jobs are durable and deduplicated but
+remain explicitly blocked while the provider is disabled.
 No real SMS provider, public confirmation, production staff login or payment
 exists; the disabled and local/test memory SMS adapters preserve the future provider port.
 Add domain modules here only with their migrations, authorization and critical isolation
@@ -24,4 +28,5 @@ explicit demo staff boundary and ADR 0007 for the anonymous checkout boundary.
 ADR 0008 defines the customer OTP and provider boundary. ADR 0009 defines the customer
 order read model. ADR 0010 defines staff order operations and immutable snapshots.
 ADR 0011 defines encrypted phone-order contacts. ADR 0012 defines fulfillment and
-controlled contact access.
+controlled contact access. ADR 0013 defines post-order requests, overdue calculation
+and the fail-closed notification outbox.

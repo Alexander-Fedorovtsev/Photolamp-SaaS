@@ -7,6 +7,9 @@ PR → CI → merge в main → успешный CI push run → GitHub Actions 
 Это staging с искусственными данными. Basic Auth защищает весь сайт. Публичное
 оформление, SMS и платежи отключены. В staff-панели можно создать заказ только на
 фиксированный синтетический контакт. Production-режим API запрещает demo previews.
+Notification jobs для выдачи, продлений и возвратов сохраняются как
+`blocked/provider_disabled`; staging не запускает отправку и не показывает их как
+доставленные.
 
 ## 1. DNS и существующий Traefik
 

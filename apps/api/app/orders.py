@@ -18,6 +18,12 @@ from app.checkout import require_checkout_session
 from app.customer_auth import invalid_customer_session, resolve_customer_identity
 from app.database import Database, PublicStorefrontNotFound, PublicTenantTransaction
 from app.holds import expire_holds
+from app.order_requests import (
+    ExtensionRequestView,
+    ReturnRequestView,
+    extension_request_from_mapping,
+    return_request_from_mapping,
+)
 
 
 class DraftOrderRequest(BaseModel):
@@ -78,6 +84,11 @@ class CustomerOrder(BaseModel):
     source: Literal["website", "phone"]
     start_date: date
     end_date: date
+    original_end_date: date
+    is_overdue: bool
+    overdue_days: int = Field(ge=0)
+    extension_request: ExtensionRequestView | None
+    return_request: ReturnRequestView | None
     fulfillment: Fulfillment
     expires_at: datetime | None
     quote: Quote
@@ -121,6 +132,19 @@ def _customer_order_from_row(row: object) -> CustomerOrder:
         source=mapping["source"],
         start_date=mapping["start_date"],
         end_date=mapping["end_date"],
+        original_end_date=OrderSnapshot.model_validate(mapping["order_snapshot"]).end_date,
+        is_overdue=mapping["overdue_days"] > 0,
+        overdue_days=mapping["overdue_days"],
+        extension_request=(
+            extension_request_from_mapping(mapping["extension_request"])
+            if mapping["extension_request"] is not None
+            else None
+        ),
+        return_request=(
+            return_request_from_mapping(mapping["return_request"])
+            if mapping["return_request"] is not None
+            else None
+        ),
         fulfillment=mapping["fulfillment"],
         expires_at=mapping["expires_at"],
         quote=Quote.model_validate(mapping["quote_snapshot"]),
@@ -128,6 +152,32 @@ def _customer_order_from_row(row: object) -> CustomerOrder:
         created_at=mapping["created_at"],
         updated_at=mapping["updated_at"],
     )
+
+
+CUSTOMER_ORDER_PROJECTION = """
+SELECT o.*,
+  CASE WHEN o.state = 'in_progress'
+    THEN GREATEST(((now() AT TIME ZONE b.timezone)::date - o.end_date), 0)
+    ELSE 0 END::integer AS overdue_days,
+  (SELECT jsonb_build_object(
+      'id', er.id, 'state', er.state, 'original_end_date', er.original_end_date,
+      'requested_end_date', er.requested_end_date, 'additional_days', er.additional_days,
+      'amount_minor', er.amount_minor, 'currency', er.currency,
+      'requested_at', er.requested_at, 'decided_at', er.decided_at,
+      'rejection_reason', er.rejection_reason)
+    FROM order_extension_requests er
+    WHERE er.tenant_id = o.tenant_id AND er.order_id = o.id
+    ORDER BY er.requested_at DESC, er.id DESC LIMIT 1) AS extension_request,
+  (SELECT jsonb_build_object(
+      'id', rr.id, 'state', rr.state, 'requested_date', rr.requested_date,
+      'requested_at', rr.requested_at, 'decided_at', rr.decided_at,
+      'rejection_reason', rr.rejection_reason)
+    FROM order_return_requests rr
+    WHERE rr.tenant_id = o.tenant_id AND rr.order_id = o.id
+    ORDER BY rr.requested_at DESC, rr.id DESC LIMIT 1) AS return_request
+FROM orders o
+JOIN branches b ON b.tenant_id = o.tenant_id AND b.id = o.branch_id
+"""
 
 
 async def _create_draft_order_in_transaction(
@@ -378,9 +428,9 @@ async def list_customer_orders(
                 rows = (
                     await transaction.session.execute(
                         text(
-                            "SELECT * FROM orders WHERE tenant_id = :tenant_id "
-                            "AND customer_id = :customer_id "
-                            "ORDER BY created_at DESC, id DESC LIMIT :limit OFFSET :offset"
+                            CUSTOMER_ORDER_PROJECTION + " WHERE o.tenant_id = :tenant_id "
+                            "AND o.customer_id = :customer_id "
+                            "ORDER BY o.created_at DESC, o.id DESC LIMIT :limit OFFSET :offset"
                         ),
                         parameters,
                     )
@@ -415,8 +465,8 @@ async def load_customer_order(
                 order = (
                     await transaction.session.execute(
                         text(
-                            "SELECT * FROM orders WHERE tenant_id = :tenant_id "
-                            "AND id = :order_id AND customer_id = :customer_id"
+                            CUSTOMER_ORDER_PROJECTION + " WHERE o.tenant_id = :tenant_id "
+                            "AND o.id = :order_id AND o.customer_id = :customer_id"
                         ),
                         {
                             "tenant_id": transaction.tenant_id,

@@ -25,6 +25,9 @@ Redis без persistence, поскольку фоновые задачи ещё 
 Adapter не отправляет SMS и не хранит номер; OTP доступен лишь тестовому процессу.
 Staging жёстко использует `disabled`, поэтому нельзя считать SMS настроенным по
 наличию endpoint в OpenAPI. Не вводите реальные номера в dev/staging.
+Handover, продление и решения по возврату создают записи `notification_jobs`, но при
+`disabled` они остаются `blocked/provider_disabled`. Worker и попытки доставки не
+запускаются; эти записи нельзя трактовать как отправленные сообщения.
 
 `CONTACT_ENCRYPTION_KEY` — URL-safe base64 от 32 случайных байт. Локальный и
 staging demo используют документированный синтетический ключ только потому, что
@@ -169,9 +172,13 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 | API `GET /api/v1/r/{slug}/me` | Privacy-safe customer identity по bearer session |
 | API `GET /api/v1/r/{slug}/me/orders` | Ограниченная пагинацией история только владельца customer session |
 | API `GET /api/v1/r/{slug}/me/orders/{id}` | Privacy-safe карточка собственного заказа во всех текущих состояниях |
+| API `POST /api/v1/r/{slug}/me/orders/{id}/extension-requests` | Идемпотентный запрос продления только владельцем активного заказа |
+| API `POST /api/v1/r/{slug}/me/orders/{id}/pickup-requests` | Идемпотентный запрос даты возврата только владельцем активного заказа |
 | API `GET /api/v1/t/{tenant_id}/orders` | Tenant-scoped очередь owner/admin/operator без открытых контактов |
 | API `POST /api/v1/t/{tenant_id}/orders/phone` | Атомарный подтверждённый заказ оператора; контакты и адрес шифруются, demo принимает только фиксированный synthetic contact |
 | API `POST /api/v1/t/{tenant_id}/orders/{id}/{confirm,cancel}` | Idempotent staff-переход с actor audit и синхронным состоянием allocation |
+| API `POST /api/v1/t/{tenant_id}/orders/{id}/extension-requests/{request_id}/{approve,reject}` | Staff-решение с повторной проверкой availability и сохранением исходного snapshot |
+| API `POST /api/v1/t/{tenant_id}/orders/{id}/pickup-requests/{request_id}/{acknowledge,reject}` | Staff-решение по запросу возврата с аудитом |
 | API `POST /api/v1/t/{tenant_id}/assets/{asset_id}/blocks` | Tenant-scoped сервисная блокировка прибора с аудитом |
 | API `/docs`, `/openapi.json` | Реальная спецификация текущего API |
 | Web `/admin` | Адаптивная demo-панель с HttpOnly session proxy; не production-auth |
@@ -191,5 +198,7 @@ Customer OTP/provider boundary: `architecture/adr-0008-customer-otp-boundary.md`
 Customer order read model: `architecture/adr-0009-customer-order-read-model.md`.
 Staff order operations: `architecture/adr-0010-staff-order-operations.md`.
 Encrypted phone orders: `architecture/adr-0011-encrypted-phone-orders.md`.
+Fulfillment lifecycle: `architecture/adr-0012-order-fulfillment.md`.
+Extensions, overdue and notification outbox: `architecture/adr-0013-order-requests-notifications.md`.
 Реализованный landing: `product/landing-foundation.md`.
 Публикация staging и GitHub CD: `deployment.md`.
