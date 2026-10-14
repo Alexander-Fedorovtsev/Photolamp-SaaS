@@ -22,7 +22,8 @@ trap on_error ERR
 [[ "$(stat -c '%u:%g:%a' /mnt/raid/photolamp-test/postgres)" == '999:999:700' ]] || fail 'PostgreSQL directory needs ownership 999:999 and mode 700'
 docker network inspect traefik >/dev/null 2>&1 || fail 'Existing Traefik network is required'
 python3 infra/scripts/ensure-runtime-password.py "$env_file"
-"${compose[@]}" config --format json | python3 infra/scripts/check-staging-config.py
+python3 infra/scripts/ensure-backup-secrets.py "$env_file"
+"${compose[@]}" --profile maintenance config --format json | python3 infra/scripts/check-staging-config.py
 
 read_env() {
   local line value
@@ -39,6 +40,7 @@ auth_password="$(read_env PHOTOLAMP_HEALTHCHECK_PASSWORD)"
 # Built images keep the revision in their ENV and OCI label; runtime cannot silently retag it.
 "${compose[@]}" build --pull
 "${compose[@]}" up -d --wait --wait-timeout 90 postgres redis
+bash infra/scripts/prepare-backup-storage.sh
 "${compose[@]}" up -d --wait --wait-timeout 180
 
 "${compose[@]}" exec -T web node -e \

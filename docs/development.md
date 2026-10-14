@@ -152,7 +152,9 @@ dependency audit, lint/format/mypy/unit/integration/coverage и reversible migra
 stack Docker build + real
 smoke + Playwright/axe + остановка Redis и восстановление. `quality-gate`
 успешен только при успехе frontend, backend, stack и infrastructure jobs. Последний
-проверяет CD gate, staging topology и настоящий Traefik/HTTPS/Basic Auth. Для защиты main можно назначить
+проверяет CD gate, staging topology, настоящий Traefik/HTTPS/Basic Auth и полный
+цикл encrypted backup → disposable restore, включая смену активного backup key.
+Для защиты main можно назначить
 `quality-gate` required check в правилах репозитория.
 
 Предусмотрены только foundation endpoints:
@@ -226,5 +228,6 @@ Tenant staff directory and role controls: `architecture/adr-0015-tenant-staff-ac
 Staff invitations and password authentication: `architecture/adr-0016-staff-invitations-auth.md`.
 Staff session inventory and revocation: `architecture/adr-0017-staff-session-management.md`.
 Production web and dependency security baseline: `architecture/adr-0018-production-security-baseline.md`.
+Encrypted database backups and restore drills: `architecture/adr-0019-encrypted-backup-restore.md`.
 Реализованный landing: `product/landing-foundation.md`.
 Публикация staging и GitHub CD: `deployment.md`.

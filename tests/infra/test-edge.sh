@@ -12,6 +12,10 @@ export POSTGRES_PASSWORD
 POSTGRES_PASSWORD="$(openssl rand -hex 32)"
 export POSTGRES_RUNTIME_PASSWORD
 POSTGRES_RUNTIME_PASSWORD="$(openssl rand -hex 32)"
+export BACKUP_ACTIVE_KEY_ID=v1
+export BACKUP_ENCRYPTION_KEYS
+backup_key_v1="$(openssl rand -hex 32)"
+BACKUP_ENCRYPTION_KEYS="{\"v1\":\"$backup_key_v1\"}"
 # Public, synthetic test credentials. Do not use these in server configuration.
 # shellcheck disable=SC2016
 export TRAEFIK_BASIC_AUTH_USERS='demo-test:$2b$05$68B.eqKkR1S8P23Fevk9Luq2JPiasI8FL.MGS9GC37gS5LxTcoSFC'
@@ -93,6 +97,50 @@ assert {item["slug"] for item in memberships} == {"demo-ufa", "demo-kazan"}
 '
 curl "${curl_options[@]}" -X DELETE -H "Origin: $public_origin" \
   -b "$cookie_jar" "$test_url/api/admin/session" >/dev/null
+
+backup_dir="$test_dir/backups"
+backup_env="$test_dir/backup.env"
+mkdir -m 0700 "$backup_dir"
+{
+  printf 'PHOTOLAMP_DEPLOY_SHA=%s\n' "$PHOTOLAMP_DEPLOY_SHA"
+  printf 'POSTGRES_PASSWORD=%s\n' "$POSTGRES_PASSWORD"
+  printf 'POSTGRES_RUNTIME_PASSWORD=%s\n' "$POSTGRES_RUNTIME_PASSWORD"
+  printf 'TRAEFIK_BASIC_AUTH_USERS=\047%s\047\n' "$TRAEFIK_BASIC_AUTH_USERS"
+  printf 'BACKUP_ACTIVE_KEY_ID=%s\n' "$BACKUP_ACTIVE_KEY_ID"
+  printf 'BACKUP_ENCRYPTION_KEYS=\047%s\047\n' "$BACKUP_ENCRYPTION_KEYS"
+  printf 'STAGING_TEST_EDGE_NETWORK=%s\n' "$STAGING_TEST_EDGE_NETWORK"
+  printf 'STAGING_TEST_CERT_DIR=%s\n' "$STAGING_TEST_CERT_DIR"
+  printf 'STAGING_TEST_DATA_DIR=%s\n' "$STAGING_TEST_DATA_DIR"
+  printf 'STAGING_TEST_NO_PROXY=%s\n' "$STAGING_TEST_NO_PROXY"
+  printf 'CODEX_PROXY_CERT=%s\n' "${CODEX_PROXY_CERT:-/etc/ssl/certs/ca-certificates.crt}"
+} > "$backup_env"
+chmod 600 "$backup_env"
+compose_paths="$PWD/compose.yaml:$PWD/compose.staging.yaml"
+if [[ "${PHOTOLAMP_CLOUD_BUILD:-false}" == true ]]; then
+  compose_paths="$compose_paths:$PWD/infra/compose.cloud.yaml"
+fi
+compose_paths="$compose_paths:$PWD/tests/infra/compose.edge.yaml"
+backup_command=(env PHOTOLAMP_APP_DIR="$PWD" PHOTOLAMP_ENV_FILE="$backup_env"
+  PHOTOLAMP_BACKUP_DIR="$backup_dir" PHOTOLAMP_COMPOSE_FILES="$compose_paths"
+  COMPOSE_PROJECT_NAME="$STAGING_TEST_PROJECT" PHOTOLAMP_DEPLOY_SHA="$PHOTOLAMP_DEPLOY_SHA")
+"${backup_command[@]}" bash infra/scripts/backup-database.sh
+first_archive="$(find "$backup_dir" -maxdepth 1 -type f -name 'photolamp-*-v1-*.dump.plb' -print -quit)"
+[[ -n "$first_archive" && -f "$first_archive.sha256" ]]
+
+BACKUP_ACTIVE_KEY_ID=v2
+BACKUP_ENCRYPTION_KEYS="{\"v1\":\"$backup_key_v1\",\"v2\":\"$(openssl rand -hex 32)\"}"
+python3 - "$backup_env" "$BACKUP_ENCRYPTION_KEYS" <<'PY'
+import re, sys
+path, keyring = sys.argv[1:]
+content = open(path).read()
+content = re.sub(r"^BACKUP_ACTIVE_KEY_ID=.*$", "BACKUP_ACTIVE_KEY_ID=v2", content, flags=re.M)
+content = re.sub(r"^BACKUP_ENCRYPTION_KEYS=.*$", f"BACKUP_ENCRYPTION_KEYS='{keyring}'", content, flags=re.M)
+open(path, "w").write(content)
+PY
+"${backup_command[@]}" bash infra/scripts/backup-database.sh
+"${backup_command[@]}" bash infra/scripts/verify-backup.sh "$first_archive"
+[[ "$(find "$backup_dir" -maxdepth 1 -type f -name 'photolamp-*.dump.plb' | wc -l)" == 2 ]]
+
 [[ "$(curl --silent --show-error --max-time 10 --cacert "$STAGING_TEST_CERT_DIR/cert.pem" \
   -H 'Host: photolamp-test.anliwei.pro' --user 'demo-test:wrong' -o /dev/null -w '%{http_code}' "$test_url/")" == 401 ]]
 container_id="$("${compose[@]}" ps -q web)"

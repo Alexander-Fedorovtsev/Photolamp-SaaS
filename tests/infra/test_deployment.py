@@ -83,6 +83,15 @@ class DeploymentGate(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Expected one exact Git SHA", result.stderr)
 
+        backup = subprocess.run(
+            ["bash", str(ROOT / "infra/scripts/remote-backup.sh"), "main"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(backup.returncode, 0)
+        self.assertIn("Expected one workflow Git SHA", backup.stderr)
+
     def test_retry_helper_recovers_and_is_bounded(self):
         remote = (ROOT / "infra/scripts/remote-deploy.sh").read_text()
         start = remote.index("retry_command() {")
@@ -260,6 +269,8 @@ class StagingTopology(unittest.TestCase):
             "PHOTOLAMP_DEPLOY_SHA": SHA,
             "POSTGRES_PASSWORD": "a" * 64,
             "POSTGRES_RUNTIME_PASSWORD": "b" * 64,
+            "BACKUP_ACTIVE_KEY_ID": "v1",
+            "BACKUP_ENCRYPTION_KEYS": json.dumps({"v1": "c" * 64}),
             "TRAEFIK_BASIC_AUTH_USERS": AUTH,
         }
         result = subprocess.run(
@@ -270,6 +281,8 @@ class StagingTopology(unittest.TestCase):
                 "compose.yaml",
                 "-f",
                 "compose.staging.yaml",
+                "--profile",
+                "maintenance",
                 "config",
                 "--format",
                 "json",
@@ -291,7 +304,15 @@ class StagingTopology(unittest.TestCase):
         self.assertEqual(serialized.replace("$$", "$"), AUTH)
 
     def test_rejects_host_ports_and_shared_database_network(self):
-        for service in ["api", "web", "postgres", "redis", "db-bootstrap", "migrate"]:
+        for service in [
+            "api",
+            "web",
+            "postgres",
+            "redis",
+            "db-bootstrap",
+            "migrate",
+            "backup-crypto",
+        ]:
             changed = copy.deepcopy(self.model)
             changed["services"][service]["ports"] = [{"published": "8000"}]
             with self.subTest(service=service), self.assertRaises(ValueError):
@@ -316,6 +337,26 @@ class StagingTopology(unittest.TestCase):
         changed = copy.deepcopy(self.model)
         changed["services"]["web"]["environment"]["APP_ENV"] = "development"
         with self.assertRaisesRegex(ValueError, "staging security"):
+            self.validator.validate(changed)
+
+    def test_backup_keys_are_valid_and_isolated_from_app_services(self):
+        changed = copy.deepcopy(self.model)
+        changed["services"]["backup-crypto"]["network_mode"] = "default"
+        with self.assertRaisesRegex(ValueError, "must not have network access"):
+            self.validator.validate(changed)
+
+        changed = copy.deepcopy(self.model)
+        changed["services"]["backup-crypto"]["environment"]["BACKUP_ACTIVE_KEY_ID"] = (
+            "missing"
+        )
+        with self.assertRaisesRegex(ValueError, "versioned backup keyring"):
+            self.validator.validate(changed)
+
+        changed = copy.deepcopy(self.model)
+        changed["services"]["api"]["environment"]["BACKUP_ENCRYPTION_KEYS"] = (
+            "must-not-reach-api"
+        )
+        with self.assertRaisesRegex(ValueError, "isolated"):
             self.validator.validate(changed)
 
     def test_rejects_default_credentials_or_unprotected_routes(self):

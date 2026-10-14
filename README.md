@@ -106,6 +106,7 @@ session без внешнего SMS-провайдера. Сотрудник в�
 - [Одноразовые приглашения и staff-auth](docs/architecture/adr-0016-staff-invitations-auth.md)
 - [Список и отзыв staff-сессий](docs/architecture/adr-0017-staff-session-management.md)
 - [Production web и dependency security baseline](docs/architecture/adr-0018-production-security-baseline.md)
+- [Шифрованные backup и проверяемое восстановление](docs/architecture/adr-0019-encrypted-backup-restore.md)
 - [Реализованный landing и витрина](docs/product/landing-foundation.md)
 - [Демо photolamp-test.anliwei.pro и настройка Continuous Deployment](docs/deployment.md)
 

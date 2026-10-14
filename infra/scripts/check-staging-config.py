@@ -18,7 +18,16 @@ def validate(model: dict) -> None:
     require(model.get("name") == "photolamp-test", "Unexpected staging project name")
     services = model["services"]
     require(
-        set(services) == {"postgres", "redis", "db-bootstrap", "migrate", "api", "web"},
+        set(services)
+        == {
+            "postgres",
+            "redis",
+            "db-bootstrap",
+            "migrate",
+            "api",
+            "backup-crypto",
+            "web",
+        },
         "Unexpected staging services",
     )
     database = services["postgres"]["environment"]
@@ -29,6 +38,12 @@ def validate(model: dict) -> None:
     )
     for name, service in services.items():
         require(not service.get("ports"), f"Host ports must not be published by {name}")
+        if name == "backup-crypto":
+            require(
+                service.get("network_mode") == "none" and not service.get("networks"),
+                "Backup cryptography must not have network access",
+            )
+            continue
         networks = set(service["networks"])
         require(
             networks == ({"internal", "traefik"} if name == "web" else {"internal"}),
@@ -65,6 +80,38 @@ def validate(model: dict) -> None:
                 "DATABASE_OWNER_URL" not in env,
                 "API must not receive database owner credentials",
             )
+    backup_environment = services["backup-crypto"]["environment"]
+    active_backup_key = backup_environment.get("BACKUP_ACTIVE_KEY_ID", "")
+    try:
+        backup_keyring = json.loads(
+            backup_environment.get("BACKUP_ENCRYPTION_KEYS", "")
+        )
+    except json.JSONDecodeError:
+        backup_keyring = None
+    require(
+        bool(re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", active_backup_key))
+        and isinstance(backup_keyring, dict)
+        and active_backup_key in backup_keyring
+        and all(
+            bool(re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", key_id))
+            and isinstance(key, str)
+            and bool(re.fullmatch(r"[a-fA-F0-9]{64}", key))
+            for key_id, key in backup_keyring.items()
+        ),
+        "Configure a valid versioned backup keyring",
+    )
+    require(
+        set(backup_environment) == {"BACKUP_ACTIVE_KEY_ID", "BACKUP_ENCRYPTION_KEYS"}
+        and all(
+            not any(
+                key.startswith("BACKUP_")
+                for key in services[name].get("environment", {})
+            )
+            for name in services
+            if name != "backup-crypto"
+        ),
+        "Backup keys must be isolated from application containers",
+    )
     labels = services["web"]["labels"]
     require(
         services["web"]["environment"]["APP_ENV"] == "staging"
@@ -100,7 +147,7 @@ def validate(model: dict) -> None:
         model["networks"]["internal"]["internal"] is True,
         "Private network must be internal",
     )
-    for name in ("api", "web", "migrate", "db-bootstrap"):
+    for name in ("api", "web", "migrate", "db-bootstrap", "backup-crypto"):
         sha = services[name]["build"]["args"]["PHOTOLAMP_DEPLOY_SHA"]
         require(
             bool(re.fullmatch(r"[a-f0-9]{40}", sha)), "Images require an exact Git SHA"
@@ -110,8 +157,10 @@ def validate(model: dict) -> None:
             "Image tag must match source SHA",
         )
     require(
-        services["api"]["image"] == services["migrate"]["image"],
-        "API and migration must use the same image",
+        services["api"]["image"]
+        == services["migrate"]["image"]
+        == services["backup-crypto"]["image"],
+        "API, migration and backup cryptography must use the same image",
     )
     require(
         services["postgres"]["volumes"][0]["source"]

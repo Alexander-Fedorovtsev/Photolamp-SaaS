@@ -50,7 +50,8 @@ sudo bash /tmp/photolamp-bootstrap/infra/scripts/bootstrap-host.sh photolamp-dep
 ```
 
 Если пользователь или временная копия уже существуют, повторно их не создавайте.
-Bootstrap создаёт только `/opt/photolamp-test` и `/mnt/raid/photolamp-test/postgres`.
+Bootstrap создаёт только `/opt/photolamp-test`, `/mnt/raid/photolamp-test/postgres`
+и закрытый каталог `/mnt/raid/photolamp-test/backups`.
 PostgreSQL **Debian** в этом проекте имеет UID/GID **999:999**, не 70:70 из Alpine
 SelfOS. Bootstrap не выполняет рекурсивный chown и не трогает данные SelfOS.
 
@@ -82,6 +83,12 @@ nano .env
 документированные demo-значения. До приёма реальных контактов добавьте в `.env`
 уникальные значения по инструкции из `docs/development.md`, затем проведите
 отдельную проверку ротации и резервного восстановления ключа.
+
+`BACKUP_ACTIVE_KEY_ID` и `BACKUP_ENCRYPTION_KEYS` вручную генерировать не нужно:
+первый deploy атомарно добавит уникальный versioned keyring в `.env`, не печатая
+его в лог. После успешного deploy сохраните обе полные строки в отдельном
+off-host password manager. Не отправляйте keyring в чат, issue или CI secret:
+он нужен именно для расшифровки архивов при потере сервера.
 
 Файл принадлежит `photolamp-deploy`, mode 600. Реальные значения остаются только
 на сервере, не в репозитории или чате. `PHOTOLAMP_DEPLOY_SHA` туда не записывайте:
@@ -240,6 +247,47 @@ docker compose -p photolamp-test --env-file .env -f compose.yaml -f compose.stag
 CD не использует `down --volumes`, Docker prune, git clean, замену `.env` или
 перезапуск Traefik. Отключение новых деплоев: `STAGING_DEPLOY_ENABLED=false`.
 Работающий сайт при этом продолжает обслуживаться.
+
+## Резервные копии и restore drill
+
+После каждого deploy и ежедневно в 01:17 UTC workflow **Backup staging** делает
+PostgreSQL custom dump. Поток шифруется AES-256-GCM до записи на диск; plaintext
+файл не создаётся. Архив считается готовым только после checksum, authenticated
+decrypt и настоящего `pg_restore` в одноразовую БД. Проверяются Alembic, основные
+таблицы и forced RLS; тестовая БД затем удаляется. По умолчанию сохраняются файлы
+не старше 30 дней и не более 35 архивов.
+
+Ручной запуск от `photolamp-deploy`:
+
+```bash
+cd /opt/photolamp-test
+bash infra/scripts/backup-database.sh
+ls -l /mnt/raid/photolamp-test/backups
+```
+
+Проверить существующий архив без изменения основной БД:
+
+```bash
+bash infra/scripts/verify-backup.sh \
+  /mnt/raid/photolamp-test/backups/photolamp-YYYYMMDDTHHMMSSZ-v1-XXXXXX.dump.plb
+```
+
+Для ротации создайте новый ID; helper сам генерирует ключ, сохраняет mode 600,
+делает новый ID активным и оставляет прежние ключи для старых архивов:
+
+```bash
+python3 infra/scripts/rotate-backup-key.py .env v2
+bash infra/scripts/backup-database.sh
+```
+
+После успешного drill обновите off-host копию всего keyring. Старый ключ удаляйте
+из `.env` только когда архивов с его ID больше нет и независимая копия keyring
+сохранена. Имя файла содержит ID (`-v1-`, `-v2-`), но не сам ключ.
+
+Эти backup находятся на том же RAID. До работы с реальными контактами нужен
+отдельный object storage с отдельными credentials, versioning/immutability и
+проверка восстановления именно из внешней копии. Сейчас такая интеграция не
+настроена и не обозначается как работающая.
 
 ## Автоматические проверки схемы
 
