@@ -6,6 +6,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 
 from app.admin_orders import (
+    ContactAccessResult,
+    InspectionRequest,
+    OrderContactUnavailable,
     OrderNotFound,
     OrderPermissionDenied,
     OrderState,
@@ -13,10 +16,14 @@ from app.admin_orders import (
     OrderTransitionResult,
     StaffOrder,
     StaffOrderPage,
+    access_order_contact,
     cancel_order,
+    complete_order_inspection,
     confirm_order,
+    hand_over_order,
     list_staff_orders,
     load_staff_order,
+    return_order,
 )
 from app.database import TenantTransaction
 from app.phone_orders import PhoneOrderRequest, create_phone_order
@@ -33,6 +40,8 @@ def translate_order_error(error: Exception) -> HTTPException:
         return HTTPException(status_code=404, detail="Order not found")
     if isinstance(error, OrderTransitionConflict):
         return HTTPException(status_code=409, detail=str(error))
+    if isinstance(error, OrderContactUnavailable):
+        return HTTPException(status_code=409, detail="Order contact details are unavailable")
     raise error
 
 
@@ -105,5 +114,75 @@ async def staff_cancel_order(
     response.headers["Cache-Control"] = "no-store"
     try:
         return await cancel_order(transaction, order_id, idempotency_key)
+    except (OrderPermissionDenied, OrderNotFound, OrderTransitionConflict) as error:
+        raise translate_order_error(error) from None
+
+
+@router.post("/{order_id}/contact-access", response_model=ContactAccessResult)
+async def staff_access_order_contact(
+    order_id: UUID,
+    request: Request,
+    response: Response,
+    transaction: Transaction,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=16, max_length=128)],
+) -> ContactAccessResult:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await access_order_contact(
+            transaction,
+            order_id,
+            idempotency_key,
+            request.app.state.contact_cipher,
+        )
+    except (
+        OrderPermissionDenied,
+        OrderNotFound,
+        OrderTransitionConflict,
+        OrderContactUnavailable,
+    ) as error:
+        raise translate_order_error(error) from None
+
+
+@router.post("/{order_id}/handover", response_model=OrderTransitionResult)
+async def staff_hand_over_order(
+    order_id: UUID,
+    response: Response,
+    transaction: Transaction,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=16, max_length=128)],
+) -> OrderTransitionResult:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await hand_over_order(transaction, order_id, idempotency_key)
+    except (OrderPermissionDenied, OrderNotFound, OrderTransitionConflict) as error:
+        raise translate_order_error(error) from None
+
+
+@router.post("/{order_id}/return", response_model=OrderTransitionResult)
+async def staff_return_order(
+    order_id: UUID,
+    response: Response,
+    transaction: Transaction,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=16, max_length=128)],
+) -> OrderTransitionResult:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await return_order(transaction, order_id, idempotency_key)
+    except (OrderPermissionDenied, OrderNotFound, OrderTransitionConflict) as error:
+        raise translate_order_error(error) from None
+
+
+@router.post("/{order_id}/inspection", response_model=OrderTransitionResult)
+async def staff_complete_order_inspection(
+    command: InspectionRequest,
+    order_id: UUID,
+    response: Response,
+    transaction: Transaction,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=16, max_length=128)],
+) -> OrderTransitionResult:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await complete_order_inspection(
+            transaction, order_id, idempotency_key, command.outcome
+        )
     except (OrderPermissionDenied, OrderNotFound, OrderTransitionConflict) as error:
         raise translate_order_error(error) from None

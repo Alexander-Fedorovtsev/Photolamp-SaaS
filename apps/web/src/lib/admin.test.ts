@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { adminCatalogSchema, adminOrderPageSchema, membershipSchema } from "./admin";
+import {
+  adminCatalogSchema,
+  adminOrderContactAccessSchema,
+  adminOrderPageSchema,
+  membershipSchema,
+} from "./admin";
 
 const staffOrderFixture = {
   order_id: "d9000000-0000-0000-0000-000000000001",
@@ -40,6 +45,13 @@ const staffOrderFixture = {
   expires_at: "2030-01-01T12:15:00+00:00",
   confirmed_at: null,
   confirmed_by_staff_user_id: null,
+  handed_over_at: null,
+  handed_over_by_staff_user_id: null,
+  returned_at: null,
+  returned_by_staff_user_id: null,
+  completed_at: null,
+  completed_by_staff_user_id: null,
+  inspection_outcome: null,
   created_at: "2030-01-01T12:00:00+00:00",
   updated_at: "2030-01-01T12:00:00+00:00",
 } as const;
@@ -119,5 +131,17 @@ describe("tenant admin contracts", () => {
       offset: 0,
     });
     expect(parsed.success).toBe(false);
+  });
+
+  it("validates contact data only through its dedicated response", () => {
+    const access = adminOrderContactAccessSchema.parse({
+      contact: {
+        phone_e164: "+70000000000",
+        recipient_name: "Synthetic customer",
+        delivery_address: null,
+      },
+      replayed: false,
+    });
+    expect(access.contact.phone_e164).toBe("+70000000000");
   });
 });

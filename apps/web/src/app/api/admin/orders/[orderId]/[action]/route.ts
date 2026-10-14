@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { proxyStaffRequest } from "@/lib/admin-proxy";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const actions = new Set(["confirm", "cancel"]);
+const actions = new Set(["confirm", "cancel", "handover", "return", "inspection"]);
 
 export async function POST(
   request: NextRequest,
@@ -22,8 +22,20 @@ export async function POST(
   ) {
     return NextResponse.json({ detail: "Invalid order action request" }, { status: 400 });
   }
+  let body: string | undefined;
+  if (action === "inspection") {
+    const candidate = (await request.json().catch(() => null)) as { outcome?: unknown } | null;
+    if (
+      !candidate ||
+      (candidate.outcome !== "passed" && candidate.outcome !== "maintenance_required")
+    ) {
+      return NextResponse.json({ detail: "Invalid inspection outcome" }, { status: 400 });
+    }
+    body = JSON.stringify({ outcome: candidate.outcome });
+  }
   return proxyStaffRequest(`/api/v1/t/${tenantId}/orders/${orderId}/${action}`, {
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey },
+    body,
   });
 }

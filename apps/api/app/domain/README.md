@@ -9,7 +9,9 @@ server quotes, atomic inventory holds, anonymous expiring draft orders and a loc
 OTP identity boundary are implemented without plaintext customer phone storage. A customer
 session can read only its own privacy-minimized order history. Staff order operations use
 immutable snapshots, idempotent events and atomic `held` to `confirmed` or `cancelled`
-transitions. No real SMS provider, public confirmation, production staff login or payment
+transitions. Fulfillment continues through handover, return and inspection while the asset
+moves through `rented` and `inspection`; contact decryption is a separate audited command.
+No real SMS provider, public confirmation, production staff login or payment
 exists; the disabled and local/test memory SMS adapters preserve the future provider port.
 Add domain modules here only with their migrations, authorization and critical isolation
 tests.
@@ -21,3 +23,5 @@ See ADR 0002 for identity/RLS, ADR 0003 for catalog boundaries, ADR 0004 for the
 explicit demo staff boundary and ADR 0007 for the anonymous checkout boundary.
 ADR 0008 defines the customer OTP and provider boundary. ADR 0009 defines the customer
 order read model. ADR 0010 defines staff order operations and immutable snapshots.
+ADR 0011 defines encrypted phone-order contacts. ADR 0012 defines fulfillment and
+controlled contact access.

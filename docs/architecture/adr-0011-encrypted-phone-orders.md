@@ -52,8 +52,8 @@ Database theft alone does not reveal contact plaintext when the application key
 is stored separately. RLS and authenticated encryption provide independent
 tenant-bound controls.
 
-This milestone intentionally has no screen that decrypts address details for
-delivery execution, no key rotation job, no production staff authentication and
-no real notification channel. Before real customers are accepted, those controls
-need an access-reviewed contact detail endpoint, a documented key backup/rotation
-procedure, retention rules and operational secret management.
+ADR 0012 adds a narrow, audited screen and command that decrypt order contact
+details only during fulfillment. There is still no key rotation job, production
+staff authentication or real notification channel. Before real customers are
+accepted, the access policy needs operational review together with a documented
+key backup/rotation procedure, retention rules and secret management.

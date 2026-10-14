@@ -79,7 +79,15 @@ export const adminCatalogSchema = z.object({
   asset_blocks: z.array(assetBlockSchema).default([]),
 });
 
-export const adminOrderStateSchema = z.enum(["held", "confirmed", "expired", "cancelled"]);
+export const adminOrderStateSchema = z.enum([
+  "held",
+  "confirmed",
+  "in_progress",
+  "returned",
+  "completed",
+  "expired",
+  "cancelled",
+]);
 
 const adminOrderSnapshotSchema = z
   .object({
@@ -106,6 +114,13 @@ export const adminOrderSchema = z
     expires_at: isoDateTimeSchema.nullable(),
     confirmed_at: isoDateTimeSchema.nullable(),
     confirmed_by_staff_user_id: uuidSchema.nullable(),
+    handed_over_at: isoDateTimeSchema.nullable(),
+    handed_over_by_staff_user_id: uuidSchema.nullable(),
+    returned_at: isoDateTimeSchema.nullable(),
+    returned_by_staff_user_id: uuidSchema.nullable(),
+    completed_at: isoDateTimeSchema.nullable(),
+    completed_by_staff_user_id: uuidSchema.nullable(),
+    inspection_outcome: z.enum(["passed", "maintenance_required"]).nullable(),
     created_at: isoDateTimeSchema,
     updated_at: isoDateTimeSchema,
   })
@@ -127,8 +142,22 @@ export const adminOrderTransitionSchema = z
   })
   .strict();
 
+export const adminOrderContactAccessSchema = z
+  .object({
+    contact: z
+      .object({
+        phone_e164: z.string().regex(/^\+[1-9][0-9]{7,14}$/),
+        recipient_name: z.string().min(1).max(120),
+        delivery_address: z.string().min(1).max(500).nullable(),
+      })
+      .strict(),
+    replayed: z.boolean(),
+  })
+  .strict();
+
 export type Membership = z.infer<typeof membershipSchema>;
 export type AdminCatalog = z.infer<typeof adminCatalogSchema>;
 export type AdminOrder = z.infer<typeof adminOrderSchema>;
 export type AdminOrderPage = z.infer<typeof adminOrderPageSchema>;
 export type AdminOrderState = z.infer<typeof adminOrderStateSchema>;
+export type AdminOrderContact = z.infer<typeof adminOrderContactAccessSchema>["contact"];
