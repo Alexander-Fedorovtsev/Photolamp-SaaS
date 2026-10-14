@@ -7,15 +7,17 @@ import {
   staffSessionCookie,
   storeStaffSession,
 } from "@/lib/admin-proxy";
+import { requestIdHeader } from "@/lib/request-id";
 
 export async function GET() {
   return proxyStaffRequest("/api/v1/me/tenants");
 }
 
 export async function POST(request: NextRequest) {
+  const forwardedHeaders = forwardedClientHeaders(request);
   const response = await fetch(`${apiInternalUrl()}/api/v1/auth/demo-session`, {
     method: "POST",
-    headers: forwardedClientHeaders(request),
+    headers: forwardedHeaders,
     cache: "no-store",
   });
   const payload = (await response.json()) as {
@@ -26,13 +28,25 @@ export async function POST(request: NextRequest) {
   if (!response.ok || !payload.access_token || !payload.expires_at) {
     return NextResponse.json(
       { detail: payload.detail ?? "Demo session unavailable" },
-      { status: response.status },
+      {
+        status: response.status,
+        headers: {
+          [requestIdHeader]:
+            response.headers.get(requestIdHeader) ?? forwardedHeaders[requestIdHeader],
+        },
+      },
     );
   }
   await storeStaffSession(request, payload.access_token, payload.expires_at);
   return NextResponse.json(
     { authenticated: true, demo_only: true },
-    { headers: { "Cache-Control": "no-store" } },
+    {
+      headers: {
+        "Cache-Control": "no-store",
+        [requestIdHeader]:
+          response.headers.get(requestIdHeader) ?? forwardedHeaders[requestIdHeader],
+      },
+    },
   );
 }
 

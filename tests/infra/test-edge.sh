@@ -75,8 +75,22 @@ for attempt in {1..20}; do
 done
 [[ "$auth_ready" == true ]] || { echo 'Traefik must require authentication' >&2; exit 1; }
 curl_options+=(--fail --user 'demo-test:test-only-not-a-real-credential')
-curl "${curl_options[@]}" "$test_url/api/health/ready" | \
+request_headers="$test_dir/request-headers"
+curl "${curl_options[@]}" -H 'X-Request-ID: edge-check-12345678' \
+  --dump-header "$request_headers" "$test_url/api/health/ready" | \
   python3 -c 'import json,sys; assert json.load(sys.stdin)["status"] == "ready"'
+tr -d '\r' < "$request_headers" | \
+  grep -Eiq '^x-request-id:[[:space:]]*edge-check-12345678$'
+[[ "$(curl "${curl_options[@]}" -o /dev/null -w '%{http_code}' \
+  "$test_url/internal/metrics" 2>/dev/null || true)" == 404 ]]
+"${compose[@]}" exec -T api python -c '
+import os, urllib.request
+body = urllib.request.urlopen("http://127.0.0.1:8000/internal/metrics", timeout=5).read().decode()
+expected = os.environ["PHOTOLAMP_DEPLOY_SHA"]
+assert "photolamp_http_requests_total" in body
+assert f"revision=\"{expected}\"" in body
+assert "demo-ufa" not in body and "demo-kazan" not in body
+'
 curl "${curl_options[@]}" "$test_url/api/version" | python3 -c '
 import json, os, sys
 version = json.load(sys.stdin)
@@ -166,4 +180,4 @@ docker inspect --format '{{ index .Config.Labels "traefik.http.middlewares.photo
 import os, sys
 assert sys.stdin.read().strip() == os.environ["TRAEFIK_BASIC_AUTH_USERS"]
 '
-echo 'Staging edge passed: TLS, auth, catalogs, admin, contact rotation, backup restore and exact SHA'
+echo 'Staging edge passed: TLS, auth, request IDs, private metrics, catalogs, admin, contact rotation, backup restore and exact SHA'

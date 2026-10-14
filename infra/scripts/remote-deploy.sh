@@ -46,3 +46,5 @@ git checkout --detach "$deploy_sha"
 PHOTOLAMP_DEPLOY_SHA="$deploy_sha" bash infra/scripts/deploy.sh
 PHOTOLAMP_DEPLOY_SHA="$deploy_sha" PHOTOLAMP_MAINTENANCE_LOCK_HELD=true \
   bash infra/scripts/backup-database.sh
+PHOTOLAMP_DEPLOY_SHA="$deploy_sha" PHOTOLAMP_MAINTENANCE_LOCK_HELD=true \
+  bash infra/scripts/monitor-staging.sh

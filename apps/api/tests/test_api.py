@@ -196,6 +196,7 @@ def test_openapi_matches_catalog_contract(client: TestClient) -> None:
         is False
     )
     assert "/api/v1/health/ready" in schema["paths"]
+    assert "/internal/metrics" not in schema["paths"]
     assert "/api/v1/me/tenants" in schema["paths"]
     assert "/api/v1/t/{tenant_id}/context" in schema["paths"]
     assert "/api/v1/auth/staff/login" in schema["paths"]

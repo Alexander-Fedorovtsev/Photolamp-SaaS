@@ -327,6 +327,37 @@ bash infra/scripts/backup-database.sh
 проверка восстановления именно из внешней копии. Сейчас такая интеграция не
 настроена и не обозначается как работающая.
 
+## Наблюдаемость и мониторинг staging
+
+API добавляет `X-Request-ID` к каждому ответу. Next.js передаёт его через health,
+version и staff BFF, поэтому ID из ответа можно искать в JSON-логах API. HTTP-лог
+содержит только метод, шаблон маршрута, статус, длительность и тип необработанного
+исключения. В нём нет URL query, body, cookie, токенов, tenant/customer ID или
+текста исключения.
+
+Prometheus endpoint `/internal/metrics` доступен только внутри API-контейнера и
+не опубликован через Traefik. Ручная проверка от `photolamp-deploy`:
+
+```bash
+cd /opt/photolamp-test
+export PHOTOLAMP_DEPLOY_SHA="$(git rev-parse HEAD)"
+bash infra/scripts/monitor-staging.sh
+```
+
+После каждого deploy эта проверка выполняется после encrypted backup/restore.
+Workflow **Monitor staging** повторяет её каждые 15 минут и допускает ручной
+`workflow_dispatch`. Он проверяет точный SHA `main`, health контейнеров,
+внутренние метрики, HTTPS/TLS и Basic Auth, сквозной request ID, совпадение SHA
+web/API, отсутствие публичного metrics route, checksum и возраст последнего
+backup (не старше 26 часов), а также заполнение backup-раздела менее 90%.
+
+Красный run в GitHub Actions сейчас является сигналом отказа. В настройках
+GitHub-аккаунта/репозитория нужно включить уведомления о failed Actions. Отдельный
+PagerDuty/Telegram/Slack webhook не настроен и не обозначается как работающий.
+Метрики пока не имеют долговременного хранилища, а probe использует тот же GitHub
+и SSH-контур. До production нужны независимая внешняя точка uptime, централизованные
+logs/metrics с retention, SLO и проверенный on-call канал.
+
 ## Автоматические проверки схемы
 
 ```bash

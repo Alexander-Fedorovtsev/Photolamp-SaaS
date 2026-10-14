@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { apiInternalUrl } from "@/lib/api";
 import { forwardedClientHeaders, storeStaffSession } from "@/lib/admin-proxy";
+import { requestIdHeader } from "@/lib/request-id";
 
 const loginPattern = /^[a-z][a-z0-9._-]{3,31}$/;
 
@@ -19,9 +20,10 @@ export async function POST(request: NextRequest) {
   ) {
     return NextResponse.json({ detail: "Проверьте логин и пароль" }, { status: 400 });
   }
+  const forwardedHeaders = forwardedClientHeaders(request);
   const response = await fetch(`${apiInternalUrl()}/api/v1/auth/staff/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...forwardedClientHeaders(request) },
+    headers: { "Content-Type": "application/json", ...forwardedHeaders },
     body: JSON.stringify({ login_name: loginName, password: body.password }),
     cache: "no-store",
   });
@@ -30,11 +32,26 @@ export async function POST(request: NextRequest) {
     expires_at?: string;
   };
   if (!response.ok || !payload.access_token || !payload.expires_at) {
-    return NextResponse.json({ detail: "Неверный логин или пароль" }, { status: response.status });
+    return NextResponse.json(
+      { detail: "Неверный логин или пароль" },
+      {
+        status: response.status,
+        headers: {
+          [requestIdHeader]:
+            response.headers.get(requestIdHeader) ?? forwardedHeaders[requestIdHeader],
+        },
+      },
+    );
   }
   await storeStaffSession(request, payload.access_token, payload.expires_at);
   return NextResponse.json(
     { authenticated: true, demo_only: false },
-    { headers: { "Cache-Control": "no-store" } },
+    {
+      headers: {
+        "Cache-Control": "no-store",
+        [requestIdHeader]:
+          response.headers.get(requestIdHeader) ?? forwardedHeaders[requestIdHeader],
+      },
+    },
   );
 }

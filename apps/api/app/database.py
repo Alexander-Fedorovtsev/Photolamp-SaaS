@@ -19,6 +19,7 @@ def create_engine(settings: Settings) -> AsyncEngine:
     return create_async_engine(
         settings.database_url.get_secret_value(),
         pool_pre_ping=True,
+        hide_parameters=True,
         connect_args={"timeout": settings.dependency_timeout_seconds},
     )
 
