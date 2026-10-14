@@ -294,6 +294,9 @@ keyring: новая версия активируется до пакетног�
 сквозной bounded request ID, JSON HTTP logs по шаблонам маршрутов, внутренние
 Prometheus-метрики и 15-минутный staging monitor. Monitor проверяет HTTPS, точный
 SHA, контейнеры, метрики и свежесть/целостность encrypted backup, а тот же gate
-выполняется после CD. До реального пилота по-прежнему обязательны off-host
-immutable backup, внешний restore drill, независимый uptime probe, централизованное
-хранилище telemetry и on-call alerts, legal gate и отдельный production-контур.
+выполняется после CD. Ошибки monitor, deploy и backup отправляются минимизированным
+сообщением в Telegram on-call destination после настройки GitHub Environment
+secrets; отдельный ручной режим проверяет доставку без искусственного сбоя staging.
+До реального пилота по-прежнему обязательны off-host immutable backup, внешний
+restore drill, независимый uptime probe, централизованное хранилище telemetry,
+формальная escalation policy, legal gate и отдельный production-контур.

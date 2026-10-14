@@ -351,12 +351,43 @@ Workflow **Monitor staging** повторяет её каждые 15 минут 
 web/API, отсутствие публичного metrics route, checksum и возраст последнего
 backup (не старше 26 часов), а также заполнение backup-раздела менее 90%.
 
-Красный run в GitHub Actions сейчас является сигналом отказа. В настройках
-GitHub-аккаунта/репозитория нужно включить уведомления о failed Actions. Отдельный
-PagerDuty/Telegram/Slack webhook не настроен и не обозначается как работающий.
-Метрики пока не имеют долговременного хранилища, а probe использует тот же GitHub
-и SSH-контур. До production нужны независимая внешняя точка uptime, централизованные
-logs/metrics с retention, SLO и проверенный on-call канал.
+### Telegram on-call канал
+
+Ошибки планового monitor, deploy и backup могут отправляться отдельным Telegram-
+ботом. Создайте через `@BotFather` отдельного бота без команд управления, добавьте
+его в приватную operational group либо channel и выдайте только право отправлять
+сообщения. Для channel бот должен быть администратором с правом **Post messages**.
+
+В GitHub откройте **Settings → Environments → staging → Environment secrets** и
+добавьте:
+
+- `TELEGRAM_BOT_TOKEN` — token, выданный `@BotFather`;
+- `TELEGRAM_ALERT_CHAT_ID` — числовой ID приватной group/channel (обычно с `-100`)
+  либо `@username` destination;
+- `TELEGRAM_ALERT_THREAD_ID` — необязательный положительный ID topic, только если
+  используется forum group.
+
+Для приватной group добавьте бота, отправьте в неё одно тестовое сообщение, затем
+получите update через Bot API и возьмите `message.chat.id`. Не вставляйте token в
+репозиторий, issue, Actions variable или server `.env`; вводите его только локально
+и сохраняйте результат сразу как Environment secret. Если `getUpdates` ничего не
+возвращает, отправьте команду с упоминанием бота в нужной group и повторите запрос.
+
+После сохранения secrets откройте **Actions → Monitor staging → Run workflow**,
+включите **Send a test message to the Telegram on-call destination** и запустите
+workflow из `main`. Зелёный run и тестовое сообщение в выбранном destination —
+обязательная проверка подключения. Обычный ручной запуск с выключенным input
+выполняет полноценный monitor. При ротации token обновите secret и повторите test.
+
+Уведомление содержит только имя среды/проверки, короткий Git SHA, UTC-время и
+ссылку на Actions run. Логи и данные клиентов в Telegram не отправляются. GitHub
+Actions остаётся источником подробностей; уведомления о failed Actions также стоит
+оставить включёнными.
+
+Метрики пока не имеют долговременного хранилища, а probe и alert зависят от GitHub
+и SSH-контура. До production нужны независимая внешняя точка uptime,
+централизованные logs/metrics с retention, SLO, правила эскалации и резервный
+канал оповещения.
 
 ## Автоматические проверки схемы
 

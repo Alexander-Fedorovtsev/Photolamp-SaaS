@@ -59,3 +59,17 @@ jobs:
       - name: Remove SSH material
         if: always()
         run: rm -f -- "$RUNNER_TEMP/photolamp-staging-key" "$RUNNER_TEMP/photolamp-known-hosts"
+      - name: Notify Telegram on-call channel
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID }}
+          TELEGRAM_ALERT_THREAD_ID: ${{ secrets.TELEGRAM_ALERT_THREAD_ID }}
+        run: |
+          python3 infra/scripts/send-telegram-alert.py \
+            --status failure \
+            --component "staging backup" \
+            --environment staging \
+            --repository "$GITHUB_REPOSITORY" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --sha "$WORKFLOW_SHA"
