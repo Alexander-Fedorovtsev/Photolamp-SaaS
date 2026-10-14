@@ -61,11 +61,13 @@ python3 tests/e2e/smoke.py
 Панель синтетического арендодателя: <http://localhost:3000/admin>.
 API/OpenAPI: <http://localhost:8000/docs>.
 
-Только вымышленные публичные бренды; реальные SMS, платежи и production-auth
-оператора недоступны. Реализованы users/tenants/memberships, opaque session lookup,
+Только вымышленные публичные бренды; реальные SMS и платежи недоступны.
+Реализованы users/tenants/memberships, opaque session lookup,
 отдельная least-privilege роль PostgreSQL и FORCE RLS. Environment-gated demo-вход
-выдаёт короткую opaque session только синтетическому staff user; реальный SMS/OTP
-вход ещё не реализован. В адаптивной `/admin` можно просматривать tenant-scoped
+выдаёт короткую opaque session только синтетическому staff user. Владелец может
+создать одноразовое приглашение на 48 часов; сотрудник выбирает неперсональный
+логин и пароль, который хранится как salted scrypt hash, и получает HttpOnly
+session без внешнего SMS-провайдера. В адаптивной `/admin` можно просматривать tenant-scoped
 очередь и карточки заказов, создавать подтверждённый заказ по телефону на
 фиксированный синтетический контакт, подтверждать/отменять допустимые заявки,
 проводить заказ через выдачу, возврат и осмотр, отдельно открывать зашифрованный
@@ -99,6 +101,7 @@ API/OpenAPI: <http://localhost:8000/docs>.
 - [Продления, просрочки, возврат и fail-closed уведомления](docs/architecture/adr-0013-order-requests-notifications.md)
 - [Операционная сводка владельца](docs/architecture/adr-0014-operations-dashboard.md)
 - [Команда tenant и управление ролями](docs/architecture/adr-0015-tenant-staff-access.md)
+- [Одноразовые приглашения и staff-auth](docs/architecture/adr-0016-staff-invitations-auth.md)
 - [Реализованный landing и витрина](docs/product/landing-foundation.md)
 - [Демо photolamp-test.anliwei.pro и настройка Continuous Deployment](docs/deployment.md)
 

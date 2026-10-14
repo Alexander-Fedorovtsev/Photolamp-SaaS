@@ -271,6 +271,25 @@ export const teamSnapshotSchema = z
   })
   .strict();
 
+export const staffInvitationSummarySchema = z
+  .object({
+    invitation_id: uuidSchema,
+    user_id: uuidSchema,
+    state: z.enum(["pending", "expired", "accepted", "revoked"]),
+    expires_at: isoDateTimeSchema,
+    created_at: isoDateTimeSchema,
+  })
+  .strict();
+
+export const staffInvitationCreatedSchema = z
+  .object({
+    invitation_id: uuidSchema,
+    invitation_token: z.string().regex(/^pli_[A-Za-z0-9_-]{32,128}$/),
+    expires_at: isoDateTimeSchema,
+    member: staffMemberSchema,
+  })
+  .strict();
+
 export type Membership = z.infer<typeof membershipSchema>;
 export type AdminCatalog = z.infer<typeof adminCatalogSchema>;
 export type AdminOrder = z.infer<typeof adminOrderSchema>;
@@ -281,3 +300,5 @@ export type OperationsDashboard = z.infer<typeof operationsDashboardSchema>;
 export type DashboardOrder = z.infer<typeof dashboardOrderSchema>;
 export type StaffMember = z.infer<typeof staffMemberSchema>;
 export type TeamSnapshot = z.infer<typeof teamSnapshotSchema>;
+export type StaffInvitationSummary = z.infer<typeof staffInvitationSummarySchema>;
+export type StaffInvitationCreated = z.infer<typeof staffInvitationCreatedSchema>;

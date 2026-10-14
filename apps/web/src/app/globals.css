@@ -599,6 +599,56 @@ h3 {
   border-top: 1px solid var(--line);
   font-size: 13px;
 }
+.admin-team-readonly p {
+  margin: 0;
+}
+.admin-team-readonly .button {
+  margin-top: 14px;
+}
+.admin-invitation-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, 0.7fr) auto;
+  align-items: end;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 20px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+}
+.admin-invitation-form label,
+.admin-auth-form label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+.admin-form-actions {
+  display: flex;
+  gap: 8px;
+}
+.admin-invitation-link {
+  margin-top: 18px;
+  padding: 18px;
+  color: #285648;
+  background: #e8f3ec;
+  border: 1px solid #bdd8c8;
+  border-radius: 18px;
+}
+.admin-invitation-link p {
+  margin: 6px 0 14px;
+}
+.admin-invitation-link > div {
+  display: flex;
+  gap: 10px;
+}
+.admin-invitation-link input {
+  min-width: 0;
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
 .admin-order-toolbar {
   display: flex;
   align-items: center;
@@ -909,6 +959,29 @@ h3 {
 .admin-login-card h1 {
   max-width: 620px;
 }
+.admin-auth-form {
+  display: grid;
+  gap: 16px;
+  margin: 26px 0;
+}
+.admin-auth-form .small {
+  margin: -10px 0 0;
+}
+.admin-login-divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 20px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.admin-login-divider::before,
+.admin-login-divider::after {
+  height: 1px;
+  flex: 1;
+  background: var(--line);
+  content: "";
+}
 
 @media (max-width: 760px) {
   .admin-header {
@@ -968,6 +1041,15 @@ h3 {
   .admin-team-list form {
     grid-template-columns: 1fr;
     align-items: stretch;
+  }
+  .admin-invitation-form {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  .admin-form-actions,
+  .admin-invitation-link > div {
+    align-items: stretch;
+    flex-direction: column;
   }
   .admin-team-member-heading {
     flex-direction: column;

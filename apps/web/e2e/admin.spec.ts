@@ -134,7 +134,10 @@ test("owner can update a synthetic staff role without exposing contacts", async 
       }),
     });
   });
-  await page.route(/\/api\/admin\/team\/[^?]+\?.*$/, async (route) => {
+  await page.route(/\/api\/admin\/team\/invitations\?.*$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: "[]" });
+  });
+  await page.route(/\/api\/admin\/team\/[0-9a-f-]+\?.*$/, async (route) => {
     const body = route.request().postDataJSON() as {
       display_name: string;
       role: "owner" | "admin" | "operator" | "courier";
@@ -170,9 +173,7 @@ test("owner can update a synthetic staff role without exposing contacts", async 
 
 test("demo staff session opens a tenant-isolated catalog workspace", async ({ page }) => {
   await page.goto("/admin");
-  await expect(
-    page.getByRole("heading", { name: "Управляйте каталогом без работы с базой." }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Вход в рабочее пространство." })).toBeVisible();
   await page.getByRole("button", { name: "Войти в demo-панель" }).click();
   await expect(page.getByRole("heading", { name: "Бережный свет · демо" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Операционная сводка" })).toBeVisible();
@@ -180,6 +181,78 @@ test("demo staff session opens a tenant-isolated catalog workspace", async ({ pa
   await expect(page.getByRole("heading", { name: "Солнечный дом · демо" })).toBeVisible();
   await expect(page.getByText("DEMO-UFA-01", { exact: true })).toBeVisible();
   await expect(page.getByText("DEMO-KZN-01", { exact: true })).toHaveCount(0);
+});
+
+test("owner creates a one-time staff link and invitee sets up access", async ({ page }) => {
+  const invitationToken = `pli_${"a".repeat(43)}`;
+  const invitedMember: StaffMember = {
+    user_id: "d5000000-0000-0000-0000-000000000009",
+    display_name: "Новый курьер",
+    role: "courier",
+    state: "invited",
+    is_current_user: false,
+    created_at: "2030-01-01T12:00:00+00:00",
+    updated_at: "2030-01-01T12:00:00+00:00",
+  };
+  await page.route(/\/api\/admin\/team\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        tenant_id: dashboardFixture.tenant_id,
+        can_manage: true,
+        members: [],
+      }),
+    });
+  });
+  await page.route(/\/api\/admin\/team\/invitations\?.*$/, async (route) => {
+    if (route.request().method() === "POST") {
+      expect(route.request().postDataJSON()).toEqual({
+        display_name: "Новый курьер",
+        role: "courier",
+      });
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({
+          invitation_id: "d6000000-0000-0000-0000-000000000009",
+          invitation_token: invitationToken,
+          expires_at: "2030-01-03T12:00:00+00:00",
+          member: invitedMember,
+        }),
+      });
+      return;
+    }
+    await route.fulfill({ contentType: "application/json", body: "[]" });
+  });
+
+  await page.goto("/admin");
+  await page.getByRole("button", { name: "Войти в demo-панель" }).click();
+  await page.getByRole("button", { name: "Добавить сотрудника" }).click();
+  const invitationForm = page.locator(".admin-invitation-form");
+  await invitationForm.getByLabel("Имя в команде").fill("Новый курьер");
+  await invitationForm.locator('select[name="role"]').selectOption("courier");
+  await invitationForm.getByRole("button", { name: "Создать ссылку" }).click();
+  const link = page.getByLabel("Одноразовая ссылка приглашения");
+  await expect(link).toHaveValue(new RegExp(`/admin/invite#token=${invitationToken}`));
+  await expect(
+    page.getByText("После обновления страницы она не будет показана повторно."),
+  ).toBeVisible();
+
+  await page.route("/api/admin/invitations/redeem", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      invitation_token: invitationToken,
+      login_name: "courier.demo",
+      password: "synthetic-password-42",
+    });
+    await route.fulfill({ contentType: "application/json", body: '{"authenticated":true}' });
+  });
+  await page.goto(`/admin/invite#token=${invitationToken}`);
+  await expect(page).toHaveURL(/\/admin\/invite$/);
+  await page.getByLabel("Логин").fill("courier.demo");
+  await page.getByLabel("Пароль", { exact: true }).fill("synthetic-password-42");
+  await page.getByLabel("Повторите пароль").fill("synthetic-password-42");
+  await page.getByRole("button", { name: "Принять приглашение" }).click();
+  await page.waitForURL("/admin");
 });
 
 test("admin workspace is keyboard reachable and accessible", async ({ page }) => {

@@ -15,8 +15,9 @@ Verified customers can create extension and return requests for their own active
 Staff decisions preserve the immutable snapshot, recheck allocation conflicts and expose
 overdue as a derived branch-local fact. Notification jobs are durable and deduplicated but
 remain explicitly blocked while the provider is disabled.
-No real SMS provider, public confirmation, production staff login or payment
-exists; the disabled and local/test memory SMS adapters preserve the future provider port.
+Staff invitation links and repeat password login are implemented without an external
+delivery service. No real SMS provider, password recovery, MFA, public confirmation or
+payment exists; the disabled and local/test memory SMS adapters preserve the future provider port.
 Add domain modules here only with their migrations, authorization and critical isolation
 tests.
 

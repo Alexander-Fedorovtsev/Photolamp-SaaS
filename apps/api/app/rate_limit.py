@@ -23,6 +23,8 @@ async def enforce_rate_limit(
     *,
     limit: int,
     window_seconds: int,
+    unavailable_detail: str = "Checkout protection is unavailable",
+    exceeded_detail: str = "Too many checkout requests",
 ) -> None:
     bucket = hashlib.sha256(scope.encode()).hexdigest()
     key = f"photolamp:rate:v1:{bucket}"
@@ -32,12 +34,12 @@ async def enforce_rate_limit(
             redis.eval(RATE_LIMIT_SCRIPT, 1, key, window_seconds),
         )
     except RedisError:
-        raise HTTPException(status_code=503, detail="Checkout protection is unavailable") from None
+        raise HTTPException(status_code=503, detail=unavailable_detail) from None
     count, ttl = result
     if count > limit:
         retry_after = max(ttl, 1)
         raise HTTPException(
             status_code=429,
-            detail="Too many checkout requests",
+            detail=exceeded_detail,
             headers={"Retry-After": str(retry_after)},
         )
