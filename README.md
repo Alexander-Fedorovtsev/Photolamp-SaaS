@@ -107,6 +107,7 @@ session без внешнего SMS-провайдера. Сотрудник в�
 - [Список и отзыв staff-сессий](docs/architecture/adr-0017-staff-session-management.md)
 - [Production web и dependency security baseline](docs/architecture/adr-0018-production-security-baseline.md)
 - [Шифрованные backup и проверяемое восстановление](docs/architecture/adr-0019-encrypted-backup-restore.md)
+- [Версионированная ротация ключей контактов](docs/architecture/adr-0020-contact-key-rotation.md)
 - [Реализованный landing и витрина](docs/product/landing-foundation.md)
 - [Демо photolamp-test.anliwei.pro и настройка Continuous Deployment](docs/deployment.md)
 

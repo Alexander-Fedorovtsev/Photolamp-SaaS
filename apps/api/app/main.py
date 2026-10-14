@@ -83,7 +83,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.engine = engine
         application.state.config = config
         application.state.contact_cipher = ContactCipher(
-            config.contact_encryption_key.get_secret_value()
+            config.contact_keyring(), config.contact_active_key_version
         )
         application.state.database = Database(engine)
         application.state.redis = redis

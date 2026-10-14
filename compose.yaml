@@ -10,7 +10,8 @@ x-api-environment: &api-environment
   CHECKOUT_MUTATION_RATE_LIMIT: ${CHECKOUT_MUTATION_RATE_LIMIT:-10}
   SMS_PROVIDER_MODE: ${SMS_PROVIDER_MODE:-memory}
   OTP_PEPPER: ${OTP_PEPPER:-local-synthetic-otp-pepper-change-me}
-  CONTACT_ENCRYPTION_KEY: ${CONTACT_ENCRYPTION_KEY:-cGhvdG9sYW1wLWxvY2FsLXN5bnRoZXRpYy1rZXktdjE=}
+  CONTACT_ACTIVE_KEY_VERSION: ${CONTACT_ACTIVE_KEY_VERSION:-1}
+  CONTACT_ENCRYPTION_KEYS: '${CONTACT_ENCRYPTION_KEYS:-{"1":"cGhvdG9sYW1wLWxvY2FsLXN5bnRoZXRpYy1rZXktdjE="}}'
   OTP_TTL_SECONDS: ${OTP_TTL_SECONDS:-300}
   OTP_MAX_ATTEMPTS: ${OTP_MAX_ATTEMPTS:-5}
   OTP_REQUEST_RATE_LIMIT: ${OTP_REQUEST_RATE_LIMIT:-3}
@@ -83,6 +84,23 @@ services:
       timeout: 6s
       retries: 12
       start_period: 15s
+
+  contact-maintenance:
+    profiles: [maintenance]
+    image: photolamp-api:local
+    build: ./apps/api
+    entrypoint: ["python", "-m", "app.rotate_contact_key"]
+    command: ["--dry-run"]
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      CONTACT_ACTIVE_KEY_VERSION: ${CONTACT_ACTIVE_KEY_VERSION:-1}
+      CONTACT_ENCRYPTION_KEYS: '${CONTACT_ENCRYPTION_KEYS:-{"1":"cGhvdG9sYW1wLWxvY2FsLXN5bnRoZXRpYy1rZXktdjE="}}'
+      DATABASE_URL: postgresql+asyncpg://photolamp_runtime:${POSTGRES_RUNTIME_PASSWORD:-local-runtime-only}@postgres:5432/${POSTGRES_DB:-photolamp}
+      DATABASE_OWNER_URL: postgresql+asyncpg://${POSTGRES_USER:-photolamp}:${POSTGRES_PASSWORD:-local-development-only}@postgres:5432/${POSTGRES_DB:-photolamp}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    restart: "no"
 
   web:
     image: photolamp-web:local

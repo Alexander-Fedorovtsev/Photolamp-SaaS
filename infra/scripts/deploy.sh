@@ -23,6 +23,7 @@ trap on_error ERR
 docker network inspect traefik >/dev/null 2>&1 || fail 'Existing Traefik network is required'
 python3 infra/scripts/ensure-runtime-password.py "$env_file"
 python3 infra/scripts/ensure-backup-secrets.py "$env_file"
+python3 infra/scripts/ensure-contact-secrets.py "$env_file"
 "${compose[@]}" --profile maintenance config --format json | python3 infra/scripts/check-staging-config.py
 
 read_env() {
