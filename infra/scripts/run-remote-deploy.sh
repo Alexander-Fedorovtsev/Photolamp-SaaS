@@ -20,13 +20,18 @@ retry_delay_seconds=10
   exit 1
 }
 
+# The loader expands only on the remote host after the script is fully spooled.
+# shellcheck disable=SC2016
+remote_loader='temporary=$(mktemp); trap "rm -f -- \"$temporary\"" EXIT HUP INT TERM; cat > "$temporary"; chmod 700 "$temporary"; bash "$temporary" "$1"'
+remote_command="bash -ceu '$remote_loader' bash '$deploy_sha'"
+
 ssh_command=(
   ssh -i "$ssh_key" -p "$port"
   -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
   -o ConnectTimeout=15 -o ConnectionAttempts=3
   -o ServerAliveInterval=30 -o ServerAliveCountMax=4
   -o "UserKnownHostsFile=$known_hosts"
-  "$user@$host" bash -s -- "$deploy_sha"
+  "$user@$host" "$remote_command"
 )
 
 for ((attempt = 1; attempt <= max_attempts; attempt++)); do

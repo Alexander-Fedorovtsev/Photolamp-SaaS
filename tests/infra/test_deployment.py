@@ -260,6 +260,51 @@ class DeploymentGate(unittest.TestCase):
             self.assertEqual(remote_failure.returncode, 23)
             self.assertEqual(state.read_text(), "1")
 
+    def test_ssh_spools_remote_script_before_commands_can_consume_stdin(self):
+        runner = ROOT / "infra/scripts/run-remote-deploy.sh"
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            fake_bin = fixture / "bin"
+            fake_bin.mkdir()
+            for name in ("key", "known-hosts"):
+                (fixture / name).write_text("synthetic\n")
+            marker = fixture / "tail-ran"
+            remote_script = fixture / "remote.sh"
+            remote_script.write_text(
+                "#!/usr/bin/env bash\n"
+                "cat >/dev/null\n" + ":\n" * 20_000 + f"printf complete > {marker}\n"
+            )
+            (fake_bin / "ssh").write_text(
+                "#!/usr/bin/env bash\n"
+                "found_host=false\n"
+                'for argument in "$@"; do\n'
+                '  if [[ "$found_host" == true ]]; then exec bash -c "$argument"; fi\n'
+                '  [[ "$argument" == *@* ]] && found_host=true\n'
+                "done\n"
+                "exit 2\n"
+            )
+            (fake_bin / "ssh").chmod(0o755)
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(runner),
+                    SHA,
+                    str(fixture / "key"),
+                    str(fixture / "known-hosts"),
+                    "staging.example.test",
+                    "photolamp-deploy",
+                    "38222",
+                    str(remote_script),
+                ],
+                cwd=ROOT,
+                env={**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(marker.read_text(), "complete")
+
 
 class StagingTopology(unittest.TestCase):
     @classmethod
