@@ -176,7 +176,13 @@ def require_catalog_editor(transaction: TenantTransaction) -> None:
         raise CatalogPermissionDenied
 
 
+def require_catalog_reader(transaction: TenantTransaction) -> None:
+    if transaction.role not in {"owner", "admin", "operator"}:
+        raise CatalogPermissionDenied
+
+
 async def load_admin_catalog(transaction: TenantTransaction) -> CatalogAdminSnapshot:
+    require_catalog_reader(transaction)
     session = transaction.session
     branches = await session.execute(
         text(
@@ -190,15 +196,6 @@ async def load_admin_catalog(transaction: TenantTransaction) -> CatalogAdminSnap
             "publication_state FROM equipment_models ORDER BY name"
         )
     )
-    assets = await session.execute(
-        text(
-            "SELECT a.id, a.branch_id, b.name AS branch_name, a.equipment_model_id, "
-            "m.name AS model_name, a.asset_code, a.serial_no, a.state "
-            "FROM assets a JOIN branches b ON b.id = a.branch_id "
-            "JOIN equipment_models m ON m.id = a.equipment_model_id "
-            "ORDER BY a.asset_code"
-        )
-    )
     pricing = await session.execute(
         text(
             "SELECT p.id, p.equipment_model_id, m.name AS model_name, "
@@ -208,22 +205,36 @@ async def load_admin_catalog(transaction: TenantTransaction) -> CatalogAdminSnap
             "ORDER BY m.name, p.created_at"
         )
     )
-    blocks = await session.execute(
-        text(
-            "SELECT ab.id, ab.asset_id, a.asset_code, ab.start_date, ab.end_date, "
-            "ab.reason, ab.note FROM asset_blocks ab "
-            "JOIN assets a ON a.id = ab.asset_id "
-            "ORDER BY ab.start_date, a.asset_code"
+    assets: list[Asset] = []
+    blocks: list[AssetBlock] = []
+    if transaction.role in {"owner", "admin"}:
+        asset_rows = await session.execute(
+            text(
+                "SELECT a.id, a.branch_id, b.name AS branch_name, a.equipment_model_id, "
+                "m.name AS model_name, a.asset_code, a.serial_no, a.state "
+                "FROM assets a JOIN branches b ON b.id = a.branch_id "
+                "JOIN equipment_models m ON m.id = a.equipment_model_id "
+                "ORDER BY a.asset_code"
+            )
         )
-    )
+        block_rows = await session.execute(
+            text(
+                "SELECT ab.id, ab.asset_id, a.asset_code, ab.start_date, ab.end_date, "
+                "ab.reason, ab.note FROM asset_blocks ab "
+                "JOIN assets a ON a.id = ab.asset_id "
+                "ORDER BY ab.start_date, a.asset_code"
+            )
+        )
+        assets = [Asset.model_validate(dict(row._mapping)) for row in asset_rows]
+        blocks = [AssetBlock.model_validate(dict(row._mapping)) for row in block_rows]
     return CatalogAdminSnapshot(
         tenant_id=transaction.tenant_id,
         role=transaction.role,
         branches=[Branch.model_validate(dict(row._mapping)) for row in branches],
         models=[EquipmentModel.model_validate(dict(row._mapping)) for row in models],
-        assets=[Asset.model_validate(dict(row._mapping)) for row in assets],
+        assets=assets,
         pricing=[PricingRule.model_validate(dict(row._mapping)) for row in pricing],
-        asset_blocks=[AssetBlock.model_validate(dict(row._mapping)) for row in blocks],
+        asset_blocks=blocks,
     )
 
 

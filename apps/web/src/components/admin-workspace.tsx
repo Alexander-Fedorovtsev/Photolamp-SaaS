@@ -15,6 +15,75 @@ import {
 } from "@/lib/admin";
 
 type SessionState = "loading" | "anonymous" | "authenticated" | "error";
+type StaffRole = Membership["role"];
+
+const roleLabels: Record<StaffRole, string> = {
+  owner: "Владелец",
+  admin: "Администратор",
+  operator: "Оператор",
+  courier: "Курьер",
+};
+
+const workspaceAccess: Record<
+  StaffRole,
+  {
+    orders: boolean;
+    catalog: boolean;
+    team: boolean;
+    description: string;
+  }
+> = {
+  owner: {
+    orders: true,
+    catalog: true,
+    team: true,
+    description: "Доступны операции, каталог, экземпляры и управление командой.",
+  },
+  admin: {
+    orders: true,
+    catalog: true,
+    team: true,
+    description: "Доступны операции, каталог, экземпляры и просмотр команды.",
+  },
+  operator: {
+    orders: true,
+    catalog: false,
+    team: false,
+    description: "Доступны заказы и операционная сводка без управления парком и командой.",
+  },
+  courier: {
+    orders: false,
+    catalog: false,
+    team: false,
+    description: "Административные разделы недоступны для роли курьера.",
+  },
+};
+
+class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+function sameMemberships(current: Membership[], incoming: Membership[]) {
+  return (
+    current.length === incoming.length &&
+    current.every((membership, index) => {
+      const next = incoming[index];
+      return (
+        next !== undefined &&
+        membership.tenant_id === next.tenant_id &&
+        membership.slug === next.slug &&
+        membership.display_name === next.display_name &&
+        membership.timezone === next.timezone &&
+        membership.role === next.role
+      );
+    })
+  );
+}
 
 async function apiRequest(path: string, init?: RequestInit) {
   const response = await fetch(path, {
@@ -22,7 +91,9 @@ async function apiRequest(path: string, init?: RequestInit) {
     headers: init?.body ? { "Content-Type": "application/json", ...init.headers } : init?.headers,
   });
   const payload = (await response.json().catch(() => ({}))) as { detail?: string };
-  if (!response.ok) throw new Error(payload.detail ?? "Не удалось выполнить запрос");
+  if (!response.ok) {
+    throw new ApiError(payload.detail ?? "Не удалось выполнить запрос", response.status);
+  }
   return payload;
 }
 
@@ -46,6 +117,8 @@ export function AdminWorkspace() {
     filter: "all",
     version: 0,
   });
+  const currentTenant = memberships.find((tenant) => tenant.tenant_id === tenantId);
+  const access = currentTenant ? workspaceAccess[currentTenant.role] : null;
 
   const clearSession = useCallback(() => {
     setCatalog(null);
@@ -74,7 +147,7 @@ export function AdminWorkspace() {
       }
       if (!response.ok) throw new Error("Не удалось проверить сессию");
       const data = membershipSchema.array().parse(await response.json());
-      setMemberships(data);
+      setMemberships((current) => (sameMemberships(current, data) ? current : data));
       setTenantId((current) => current || data[0]?.tenant_id || "");
       setSession("authenticated");
     } catch {
@@ -82,22 +155,43 @@ export function AdminWorkspace() {
     }
   }, []);
 
-  const loadCatalog = useCallback(async (selectedTenant: string) => {
-    if (!selectedTenant) return;
-    const response = await fetch(
-      `/api/admin/catalog?tenant_id=${encodeURIComponent(selectedTenant)}`,
-      {
-        cache: "no-store",
-      },
-    );
-    if (response.status === 401) {
-      setSession("anonymous");
-      setCatalog(null);
-      return;
-    }
-    if (!response.ok) throw new Error("Не удалось загрузить каталог");
-    setCatalog(adminCatalogSchema.parse(await response.json()));
-  }, []);
+  const loadCatalog = useCallback(
+    async (selectedTenant: string, role: StaffRole) => {
+      if (!selectedTenant) return;
+      if (role === "courier") {
+        setCatalog(null);
+        return;
+      }
+      const response = await fetch(
+        `/api/admin/catalog?tenant_id=${encodeURIComponent(selectedTenant)}`,
+        {
+          cache: "no-store",
+        },
+      );
+      if (response.status === 401) {
+        setSession("anonymous");
+        setCatalog(null);
+        return;
+      }
+      if (!response.ok) {
+        setCatalog(null);
+        if (response.status === 403) await loadSession();
+        throw new Error("Не удалось загрузить доступное рабочее пространство");
+      }
+      const nextCatalog = adminCatalogSchema.parse(await response.json());
+      setMemberships((current) => {
+        const selected = current.find((membership) => membership.tenant_id === selectedTenant);
+        if (!selected || selected.role === nextCatalog.role) return current;
+        return current.map((membership) =>
+          membership.tenant_id === selectedTenant
+            ? { ...membership, role: nextCatalog.role }
+            : membership,
+        );
+      });
+      setCatalog(nextCatalog);
+    },
+    [loadSession],
+  );
 
   useEffect(() => {
     // Session state is intentionally bootstrapped from the same-origin server boundary.
@@ -106,14 +200,14 @@ export function AdminWorkspace() {
   }, [loadSession]);
 
   useEffect(() => {
-    if (session === "authenticated" && tenantId) {
+    if (session === "authenticated" && tenantId && currentTenant) {
       // Tenant selection is the external input for the protected catalog fetch.
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      void loadCatalog(tenantId).catch((error: unknown) => {
+      void loadCatalog(tenantId, currentTenant.role).catch((error: unknown) => {
         setNotice(error instanceof Error ? error.message : "Ошибка загрузки");
       });
     }
-  }, [loadCatalog, session, tenantId]);
+  }, [currentTenant, loadCatalog, session, tenantId]);
 
   async function demoLogin() {
     setBusy(true);
@@ -160,6 +254,10 @@ export function AdminWorkspace() {
   }
 
   async function mutate(resource: string, body: object, id?: string) {
+    if (!access?.catalog || !currentTenant) {
+      setNotice("Изменение каталога доступно только владельцу или администратору.");
+      return false;
+    }
     setBusy(true);
     setNotice("");
     try {
@@ -168,10 +266,14 @@ export function AdminWorkspace() {
         `/api/admin/catalog/${resource}${suffix}?tenant_id=${encodeURIComponent(tenantId)}`,
         { method: id ? "PATCH" : "POST", body: JSON.stringify(body) },
       );
-      await loadCatalog(tenantId);
+      await loadCatalog(tenantId, currentTenant.role);
       setNotice("Изменение сохранено в demo-каталоге.");
       return true;
     } catch (error) {
+      if (error instanceof ApiError && error.status === 403) {
+        setCatalog(null);
+        await loadSession();
+      }
       setNotice(error instanceof Error ? error.message : "Не удалось сохранить изменение");
       return false;
     } finally {
@@ -260,7 +362,6 @@ export function AdminWorkspace() {
     );
   }
 
-  const currentTenant = memberships.find((tenant) => tenant.tenant_id === tenantId);
   return (
     <div className="admin-shell">
       <header className="admin-header">
@@ -270,20 +371,26 @@ export function AdminWorkspace() {
           </span>
           <span>Photolamp</span>
         </Link>
-        <div className="admin-tenant-picker">
-          <label htmlFor="tenant-select">Организация</label>
-          <select
-            id="tenant-select"
-            value={tenantId}
-            onChange={(event) => setTenantId(event.target.value)}
-          >
-            {memberships.map((tenant) => (
-              <option key={tenant.tenant_id} value={tenant.tenant_id}>
-                {tenant.display_name}
-              </option>
-            ))}
-          </select>
-        </div>
+        {memberships.length > 0 && (
+          <div className="admin-tenant-picker">
+            <label htmlFor="tenant-select">Организация</label>
+            <select
+              id="tenant-select"
+              value={tenantId}
+              onChange={(event) => {
+                setCatalog(null);
+                setNotice("");
+                setTenantId(event.target.value);
+              }}
+            >
+              {memberships.map((tenant) => (
+                <option key={tenant.tenant_id} value={tenant.tenant_id}>
+                  {tenant.display_name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <button
           className="button secondary admin-logout"
           type="button"
@@ -300,12 +407,14 @@ export function AdminWorkspace() {
             <p className="eyebrow">Рабочее пространство · demo</p>
             <h1>{currentTenant?.display_name ?? "Каталог"}</h1>
             <p>
-              Роль: {currentTenant?.role}. Заказы и каталог изолированы в выбранной организации.
+              Роль: {currentTenant ? roleLabels[currentTenant.role] : "—"}. {access?.description}
             </p>
           </div>
-          <Link href={`/r/${currentTenant?.slug ?? "demo-ufa"}`} className="button secondary">
-            Открыть витрину
-          </Link>
+          {currentTenant && (
+            <Link href={`/r/${currentTenant.slug}`} className="button secondary">
+              Открыть витрину
+            </Link>
+          )}
         </section>
 
         {notice && (
@@ -313,9 +422,9 @@ export function AdminWorkspace() {
             {notice}
           </p>
         )}
-        {!catalog || catalog.tenant_id !== tenantId ? (
+        {access?.orders && (!catalog || catalog.tenant_id !== tenantId) ? (
           <p className="admin-loading">Загружаем tenant-каталог…</p>
-        ) : (
+        ) : access?.orders && catalog ? (
           <>
             <AdminDashboard
               tenantId={tenantId}
@@ -334,18 +443,43 @@ export function AdminWorkspace() {
               onChanged={refreshDashboard}
             />
 
-            {(currentTenant?.role === "owner" || currentTenant?.role === "admin") && (
-              <AdminTeam tenantId={tenantId} onUnauthorized={clearSession} />
+            {access.catalog && (
+              <>
+                <ModelSection catalog={catalog} busy={busy} mutate={mutate} />
+                <AssetSection catalog={catalog} busy={busy} mutate={mutate} />
+                <PricingSection catalog={catalog} busy={busy} mutate={mutate} />
+                <BranchSection catalog={catalog} busy={busy} mutate={mutate} />
+              </>
             )}
-
-            <AdminSessions onUnauthorized={clearSession} />
-
-            <ModelSection catalog={catalog} busy={busy} mutate={mutate} />
-            <AssetSection catalog={catalog} busy={busy} mutate={mutate} />
-            <PricingSection catalog={catalog} busy={busy} mutate={mutate} />
-            <BranchSection catalog={catalog} busy={busy} mutate={mutate} />
           </>
+        ) : currentTenant?.role === "courier" ? (
+          <section className="admin-section" aria-labelledby="courier-boundary-title">
+            <div className="admin-section-heading">
+              <div>
+                <p className="eyebrow">Граница роли</p>
+                <h2 id="courier-boundary-title">Рабочее место курьера готовится</h2>
+              </div>
+            </div>
+            <p>
+              Курьерские задания ещё не реализованы. Каталог, экземпляры, общая очередь заказов и
+              команда скрыты, пока для них нет отдельного ограниченного API.
+            </p>
+          </section>
+        ) : (
+          <section className="admin-section" aria-labelledby="membership-boundary-title">
+            <div className="admin-section-heading">
+              <div>
+                <p className="eyebrow">Доступ</p>
+                <h2 id="membership-boundary-title">Нет активной организации</h2>
+              </div>
+            </div>
+            <p>Сессия действует, но активных memberships для рабочего пространства нет.</p>
+          </section>
         )}
+
+        {access?.team && <AdminTeam tenantId={tenantId} onUnauthorized={clearSession} />}
+
+        <AdminSessions onUnauthorized={clearSession} />
       </main>
     </div>
   );
