@@ -26,6 +26,7 @@ def validate(model: dict) -> None:
             "migrate",
             "api",
             "backup-crypto",
+            "offsite-backup",
             "contact-maintenance",
             "web",
         },
@@ -43,6 +44,12 @@ def validate(model: dict) -> None:
             require(
                 service.get("network_mode") == "none" and not service.get("networks"),
                 "Backup cryptography must not have network access",
+            )
+            continue
+        if name == "offsite-backup":
+            require(
+                set(service.get("networks", {})) == {"backup-egress"},
+                "Off-site backup must use its isolated egress network",
             )
             continue
         networks = set(service["networks"])
@@ -152,6 +159,34 @@ def validate(model: dict) -> None:
         ),
         "Backup keys must be isolated from application containers",
     )
+    offsite_environment = services["offsite-backup"]["environment"]
+    expected_offsite_keys = {
+        "AWS_EC2_METADATA_DISABLED",
+        "OFFSITE_BACKUP_ENDPOINT_URL",
+        "OFFSITE_BACKUP_REGION",
+        "OFFSITE_BACKUP_BUCKET",
+        "OFFSITE_BACKUP_PREFIX",
+        "OFFSITE_BACKUP_ADDRESSING_STYLE",
+        "OFFSITE_BACKUP_ACCESS_KEY_ID",
+        "OFFSITE_BACKUP_SECRET_ACCESS_KEY",
+    }
+    require(
+        set(offsite_environment) == expected_offsite_keys
+        and offsite_environment["AWS_EC2_METADATA_DISABLED"] == "true"
+        and not any(
+            key.startswith(("DATABASE_", "BACKUP_ENCRYPTION_", "CONTACT_"))
+            for key in offsite_environment
+        )
+        and all(
+            not any(
+                key.startswith("OFFSITE_BACKUP_")
+                for key in services[name].get("environment", {})
+            )
+            for name in services
+            if name != "offsite-backup"
+        ),
+        "Off-site credentials must be isolated from application and crypto processes",
+    )
     labels = services["web"]["labels"]
     require(
         services["web"]["environment"]["APP_ENV"] == "staging"
@@ -187,12 +222,17 @@ def validate(model: dict) -> None:
         model["networks"]["internal"]["internal"] is True,
         "Private network must be internal",
     )
+    require(
+        model["networks"]["backup-egress"].get("internal", False) is False,
+        "Off-site backup network must allow outbound HTTPS",
+    )
     for name in (
         "api",
         "web",
         "migrate",
         "db-bootstrap",
         "backup-crypto",
+        "offsite-backup",
         "contact-maintenance",
     ):
         sha = services[name]["build"]["args"]["PHOTOLAMP_DEPLOY_SHA"]
@@ -207,6 +247,7 @@ def validate(model: dict) -> None:
         services["api"]["image"]
         == services["migrate"]["image"]
         == services["backup-crypto"]["image"]
+        == services["offsite-backup"]["image"]
         == services["contact-maintenance"]["image"],
         "API and maintenance processes must use the same image",
     )

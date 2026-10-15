@@ -322,10 +322,58 @@ bash infra/scripts/backup-database.sh
 из `.env` только когда архивов с его ID больше нет и независимая копия keyring
 сохранена. Имя файла содержит ID (`-v1-`, `-v2-`), но не сам ключ.
 
-Эти backup находятся на том же RAID. До работы с реальными контактами нужен
-отдельный object storage с отдельными credentials, versioning/immutability и
-проверка восстановления именно из внешней копии. Сейчас такая интеграция не
-настроена и не обозначается как работающая.
+### Immutable off-site backup
+
+Репозиторий поддерживает S3-compatible внешнюю копию, но она выключена до
+настройки отдельного bucket. Bucket должен быть создан с **versioning** и
+**Object Lock**; включить Object Lock после создания позволяют не все провайдеры.
+Для pilot используется `COMPLIANCE` retention не менее 30 дней. Lifecycle не
+должен пытаться удалить версии раньше окончания retention.
+
+Создайте отдельную пару credentials, ограниченную одним bucket/prefix и provider-
+эквивалентами `PutObject`, `PutObjectRetention`, `GetObject`/`HeadObject` и
+`GetObjectRetention`. Не выдавайте приложению права удалять объекты, менять
+policy/lifecycle/default retention или просматривать другие bucket.
+Затем добавьте в server `/opt/photolamp-test/.env`:
+
+```dotenv
+OFFSITE_BACKUP_ENABLED=false
+OFFSITE_BACKUP_ENDPOINT_URL=https://storage.example.invalid
+OFFSITE_BACKUP_REGION=region-1
+OFFSITE_BACKUP_BUCKET=photolamp-backups
+OFFSITE_BACKUP_PREFIX=photolamp/staging/database
+OFFSITE_BACKUP_ADDRESSING_STYLE=path
+OFFSITE_BACKUP_ACCESS_KEY_ID=replace
+OFFSITE_BACKUP_SECRET_ACCESS_KEY=replace
+OFFSITE_BACKUP_OBJECT_LOCK_DAYS=30
+```
+
+Endpoint обязан использовать HTTPS и не должен содержать credentials или query.
+Для AWS-style virtual-hosted endpoint можно выбрать `virtual`; большинство custom
+S3 endpoints используют `path`. Сохраните `.env` с владельцем deploy user и mode
+600. Полный `BACKUP_ENCRYPTION_KEYS` храните отдельно от сервера и object storage:
+без keyring внешний ciphertext нельзя восстановить.
+
+Сначала оставьте `OFFSITE_BACKUP_ENABLED=false`, проверьте endpoint/bucket/IAM,
+затем включите `true` и выполните под `photolamp-deploy`:
+
+```bash
+cd /opt/photolamp-test
+export PHOTOLAMP_DEPLOY_SHA="$(git rev-parse HEAD)"
+bash infra/scripts/backup-database.sh
+```
+
+Успех означает последовательное прохождение локального restore, immutable upload,
+проверки remote head/checksum, обратного download и второго disposable restore.
+После этого scheduled backup и каждый deploy выполняют тот же gate, а 15-минутный
+monitor проверяет последнюю off-site копию. При сетевой ошибке или неверном Object
+Lock workflow становится красным; проверенный локальный архив сохраняется для
+диагностики и повторной отправки.
+
+Пока `OFFSITE_BACKUP_ENABLED=false`, внешняя копия **не считается настроенной**.
+Provider account, bucket и реальные credentials репозиторий не создаёт.
+Текущий uploader использует один S3 `PutObject` и ограничен архивами до 5 GiB.
+До достижения этого размера переведите transport на checksum-защищённый multipart.
 
 ## Наблюдаемость и мониторинг staging
 

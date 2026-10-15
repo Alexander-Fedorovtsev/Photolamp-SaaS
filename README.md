@@ -110,6 +110,7 @@ session без внешнего SMS-провайдера. Сотрудник в�
 - [Версионированная ротация ключей контактов](docs/architecture/adr-0020-contact-key-rotation.md)
 - [Observability baseline и staging monitor](docs/architecture/adr-0021-observability-baseline.md)
 - [Telegram on-call alerts](docs/architecture/adr-0022-telegram-on-call-alerts.md)
+- [Immutable off-site backups](docs/architecture/adr-0023-immutable-offsite-backups.md)
 - [Реализованный landing и витрина](docs/product/landing-foundation.md)
 - [Демо photolamp-test.anliwei.pro и настройка Continuous Deployment](docs/deployment.md)
 

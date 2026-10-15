@@ -18,13 +18,22 @@ cd "$app_dir"
 
 archive="$(realpath -e -- "$1")"
 canonical_backup_dir="$(realpath -e -- "$backup_dir")"
-[[ "$archive" == "$canonical_backup_dir"/photolamp-*.dump.plb ]] || fail 'Archive must be inside the configured backup directory'
+case "$archive" in
+  "$canonical_backup_dir"/photolamp-*.dump.plb) ;;
+  "$canonical_backup_dir"/.offsite-restore.*/photolamp-*.dump.plb)
+    restore_source_dir="$(dirname "$archive")"
+    [[ "$(dirname "$restore_source_dir")" == "$canonical_backup_dir" ]] || fail 'Off-site restore directory is unsafe'
+    [[ "$(basename "$restore_source_dir")" == .offsite-restore.* ]] || fail 'Off-site restore directory is unsafe'
+    [[ ! -L "$restore_source_dir" && "$(stat -c '%u:%a' "$restore_source_dir")" == "$(id -u):700" ]] || fail 'Off-site restore directory is unsafe'
+    ;;
+  *) fail 'Archive must be inside the configured backup directory' ;;
+esac
 [[ -f "$archive" && ! -L "$archive" ]] || fail 'Backup archive is missing or unsafe'
 [[ "$(stat -c '%u:%a' "$archive")" == "$(id -u):600" ]] || fail 'Backup archive must belong to the deploy user and have mode 600'
 checksum="$archive.sha256"
 [[ -f "$checksum" && ! -L "$checksum" ]] || fail 'Backup checksum is missing or unsafe'
 [[ "$(stat -c '%u:%a' "$checksum")" == "$(id -u):600" ]] || fail 'Backup checksum must belong to the deploy user and have mode 600'
-(cd "$canonical_backup_dir" && sha256sum --check --status "$(basename "$checksum")") || fail 'Backup checksum verification failed'
+(cd "$(dirname "$archive")" && sha256sum --check --status "$(basename "$checksum")") || fail 'Backup checksum verification failed'
 
 if [[ "${PHOTOLAMP_MAINTENANCE_LOCK_HELD:-false}" != true ]]; then
   exec 9> .deploy.lock

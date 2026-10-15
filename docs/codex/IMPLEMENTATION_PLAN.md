@@ -297,6 +297,11 @@ SHA, контейнеры, метрики и свежесть/целостнос
 выполняется после CD. Ошибки monitor, deploy и backup отправляются минимизированным
 сообщением в Telegram on-call destination после настройки GitHub Environment
 secrets; отдельный ручной режим проверяет доставку без искусственного сбоя staging.
-До реального пилота по-прежнему обязательны off-host immutable backup, внешний
-restore drill, независимый uptime probe, централизованное хранилище telemetry,
-формальная escalation policy, legal gate и отдельный production-контур.
+Добавлен выключенный по умолчанию S3-compatible off-site backup gate: отдельный
+maintenance-процесс загружает ciphertext только с COMPLIANCE Object Lock, проверяет
+remote checksum/retention, скачивает объект обратно и выполняет второй disposable
+restore. Интеграция считается рабочей только после создания внешнего bucket,
+ограниченных credentials и успешного drill. До реального пилота по-прежнему
+обязательны активация независимого off-host storage, независимый uptime probe,
+централизованное хранилище telemetry, формальная escalation policy, legal gate и
+отдельный production-контур.
