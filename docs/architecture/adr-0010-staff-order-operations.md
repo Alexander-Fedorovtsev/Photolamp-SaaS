@@ -33,6 +33,10 @@ make the record unstable.
   routes. The browser keeps the opaque staff credential in an HttpOnly cookie,
   validates privacy-minimized responses, filters the tenant queue by state and
   exposes only transitions allowed by the backend contract.
+- Operators receive only the branch/model/pricing projection needed by the phone
+  order form. Physical asset identifiers and catalog mutations remain limited to
+  owner/admin. Couriers cannot open the shared order queue; a future courier API
+  must return only explicitly assigned tasks and minimum delivery data.
 - Customer-facing confirmation remains unavailable. Staging keeps public booking
   disabled and payment state at `not_started`.
 - The existing `SmsProvider` port remains the extension point for a future real

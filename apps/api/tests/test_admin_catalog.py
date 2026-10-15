@@ -229,6 +229,69 @@ async def test_demo_owner_manages_catalog_and_public_read_model(
 
 
 @pytest.mark.integration
+async def test_catalog_read_model_is_minimized_by_staff_role(
+    admin_client: tuple[AsyncClient, str, str],
+) -> None:
+    client, token, owner_url = admin_client
+    headers = {"Authorization": f"Bearer {token}"}
+    memberships = await client.get("/api/v1/me/tenants", headers=headers)
+    tenant_id = next(item["tenant_id"] for item in memberships.json() if item["slug"] == "demo-ufa")
+    catalog_url = f"/api/v1/t/{tenant_id}/catalog-admin"
+    owner_catalog = (await client.get(catalog_url, headers=headers)).json()
+    asset_id = owner_catalog["assets"][0]["id"]
+    owner = create_async_engine(owner_url)
+    try:
+        async with owner.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE tenant_memberships SET role = 'operator' "
+                    "WHERE tenant_id = :tenant_id AND user_id = :user_id"
+                ),
+                {"tenant_id": tenant_id, "user_id": DEMO_USER},
+            )
+
+        operator_response = await client.get(catalog_url, headers=headers)
+        assert operator_response.status_code == 200
+        operator_catalog = operator_response.json()
+        assert operator_catalog["role"] == "operator"
+        assert operator_catalog["branches"]
+        assert operator_catalog["models"]
+        assert operator_catalog["pricing"]
+        assert operator_catalog["assets"] == []
+        assert operator_catalog["asset_blocks"] == []
+        assert "asset_code" not in operator_response.text
+        assert "serial_no" not in operator_response.text
+        forbidden_mutation = await client.patch(
+            f"/api/v1/t/{tenant_id}/assets/{asset_id}",
+            headers=headers,
+            json={"state": "available"},
+        )
+        assert forbidden_mutation.status_code == 403
+
+        async with owner.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE tenant_memberships SET role = 'courier' "
+                    "WHERE tenant_id = :tenant_id AND user_id = :user_id"
+                ),
+                {"tenant_id": tenant_id, "user_id": DEMO_USER},
+            )
+        courier_response = await client.get(catalog_url, headers=headers)
+        assert courier_response.status_code == 403
+        assert courier_response.json()["detail"] == "Owner, admin or operator role required"
+    finally:
+        async with owner.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE tenant_memberships SET role = 'owner' "
+                    "WHERE tenant_id = :tenant_id AND user_id = :user_id"
+                ),
+                {"tenant_id": tenant_id, "user_id": DEMO_USER},
+            )
+        await owner.dispose()
+
+
+@pytest.mark.integration
 async def test_demo_session_is_environment_gated() -> None:
     settings = Settings(app_env="test", enable_demo_previews=False)
     app = create_app(settings)

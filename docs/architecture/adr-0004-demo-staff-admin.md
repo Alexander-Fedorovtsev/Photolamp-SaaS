@@ -23,7 +23,10 @@
 - `/admin` показывает только memberships текущей сессии. Выбранный tenant снова
   авторизуется API через `authorize_session_tenant`; ID из URL или тела сам по
   себе не даёт доступ.
-- `GET /api/v1/t/{tenant_id}/catalog-admin` возвращает приватную staff read-model.
+- `GET /api/v1/t/{tenant_id}/catalog-admin` возвращает полную приватную read-model
+  только owner/admin. Operator получает модели, филиалы и тарифы для оформления
+  заказов, но не получает asset codes, serial numbers или asset blocks. Courier
+  не имеет доступа к этому endpoint.
   `POST/PATCH` для `branches`, `models`, `assets`, `pricing` доступны ролям
   `owner/admin`. `tenant_id` всегда берётся из неизменяемого server context и
   отсутствует в command DTO.
@@ -44,7 +47,9 @@ OTP, 2FA, rate limiting, управление сотрудниками или re
 Integration-тест проходит полный путь session → membership → CRUD → public
 read-model → audit → logout под настоящей runtime-ролью. Smoke проверяет admin
 через собранные контейнеры, Playwright — tenant switch, отсутствие строк другого
-tenant, keyboard navigation, axe и mobile/desktop layouts.
+tenant, ролевую видимость, добавление экземпляра владельцем, keyboard navigation,
+axe и mobile/desktop layouts. Frontend не монтирует административные запросы или
+контролы для courier и не показывает catalog CRUD оператору.
 
 Серверные availability и quote реализованы в ADR 0005, атомарный hold — в ADR
 0006. Следующий бизнес-инкремент создаёт order из активного hold после

@@ -172,7 +172,7 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 | API `/api/v1/me/tenants` | Активные memberships непрозрачной сессии; 401 без неё |
 | API `/api/v1/t/{tenant_id}/context` | Проверенный tenant context под RLS; 404 для чужого tenant |
 | API `POST /api/v1/auth/demo-session` | Короткая синтетическая staff session только при demo-режиме; production возвращает 404 |
-| API `/api/v1/t/{tenant_id}/catalog-admin` | Приватная staff read-model после session + membership + RLS проверки |
+| API `/api/v1/t/{tenant_id}/catalog-admin` | Полная read-model для owner/admin; operator получает только модели/филиалы/тарифы для заказов; courier получает 403 |
 | API `POST/PATCH /api/v1/t/{tenant_id}/{models,assets,pricing,branches}` | Owner/admin CRUD без доверия к tenant ID из body; изменения аудируются |
 | API `/api/v1/r/{slug}/availability` | Агрегированная доступность модели на включительный диапазон дат |
 | API `POST /api/v1/r/{slug}/checkout/quote` | Серверный расчёт тарифа и снимок доступности без резервирования |
@@ -213,6 +213,23 @@ smoke + Playwright/axe + остановка Redis и восстановлени�
 | Web `/api/health/ready` | 200 при готовом API; иначе 503 |
 | API `/api/v1/version` | SHA текущего API-образа, no-store |
 | Web `/api/version` | SHA web/API при совпадении, иначе 503; no-store |
+
+### Матрица staff-доступа
+
+| Возможность | owner | admin | operator | courier |
+| --- | --- | --- | --- | --- |
+| Операционная сводка и общая очередь заказов | Да | Да | Да | Нет |
+| Заказ по телефону и переходы заказа | Да | Да | Да | Нет |
+| Модели, филиалы и тарифы для формы заказа | Да | Да | Только read-model | Нет |
+| Коды, серийные номера и блокировки экземпляров | Да | Да | Нет | Нет |
+| Изменение каталога и экземпляров | Да | Да | Нет | Нет |
+| Просмотр команды | Да | Да | Нет | Нет |
+| Приглашения и изменение ролей | Да | Нет | Нет | Нет |
+| Собственные активные сессии и их отзыв | Да | Да | Да | Да |
+
+Courier workspace пока не имеет API назначенных заданий, поэтому не показывает
+общую очередь и контактные данные. Такой доступ появится отдельным инкрементом с
+фильтрацией по назначенному courier user ID и минимальным delivery DTO.
 
 План и границы SaaS: `architecture/adr-0001-foundation.md`.
 Реализованная tenant/RLS-модель: `architecture/adr-0002-tenant-identity-rls.md`.

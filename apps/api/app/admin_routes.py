@@ -68,7 +68,12 @@ def translate_catalog_error(error: Exception) -> HTTPException:
 
 @router.get("/catalog-admin", response_model=CatalogAdminSnapshot)
 async def catalog_admin(transaction: Transaction) -> CatalogAdminSnapshot:
-    return await load_admin_catalog(transaction)
+    try:
+        return await load_admin_catalog(transaction)
+    except CatalogPermissionDenied:
+        raise HTTPException(
+            status_code=403, detail="Owner, admin or operator role required"
+        ) from None
 
 
 @router.post("/branches", response_model=EntityCreated, status_code=status.HTTP_201_CREATED)

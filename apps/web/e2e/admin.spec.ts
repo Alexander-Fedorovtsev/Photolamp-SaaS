@@ -302,6 +302,364 @@ test("staff can review sessions, revoke one device and sign out everywhere", asy
   await expect(page.getByRole("heading", { name: "Вход в рабочее пространство." })).toBeVisible();
 });
 
+test("courier sees only the role boundary and own sessions", async ({ page }) => {
+  const protectedRequests: string[] = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (/^\/api\/admin\/(catalog|dashboard|orders|team)(?:\/|$)/.test(path)) {
+      protectedRequests.push(path);
+    }
+  });
+  await page.route(/\/api\/admin\/session$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          tenant_id: dashboardFixture.tenant_id,
+          slug: "demo-ufa",
+          display_name: "Бережный свет · демо",
+          timezone: "Asia/Yekaterinburg",
+          role: "courier",
+        },
+      ]),
+    });
+  });
+  await page.route(/\/api\/admin\/sessions$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: "[]" });
+  });
+
+  await page.goto("/admin");
+
+  await expect(page.getByText("Роль: Курьер.")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Рабочее место курьера готовится" }),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Активные сессии" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Операционная сводка" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Заказы", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Экземпляры" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Команда и роли" })).toHaveCount(0);
+  await expect.poll(() => protectedRequests).toEqual([]);
+});
+
+test("authenticated staff without an active organization gets a clear access boundary", async ({
+  page,
+}) => {
+  const protectedRequests: string[] = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (/^\/api\/admin\/(catalog|dashboard|orders|team)(?:\/|$)/.test(path)) {
+      protectedRequests.push(path);
+    }
+  });
+  await page.route(/\/api\/admin\/session$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: "[]" });
+  });
+  await page.route(/\/api\/admin\/sessions$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: "[]" });
+  });
+
+  await page.goto("/admin");
+
+  await expect(page.getByRole("heading", { name: "Нет активной организации" })).toBeVisible();
+  await expect(page.getByLabel("Организация")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Открыть витрину" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Активные сессии" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Рабочее место курьера готовится" })).toHaveCount(
+    0,
+  );
+  await expect.poll(() => protectedRequests).toEqual([]);
+});
+
+test("operator gets order tools without private inventory or team controls", async ({ page }) => {
+  const requestedPaths: string[] = [];
+  page.on("request", (request) => requestedPaths.push(new URL(request.url()).pathname));
+  await page.route(/\/api\/admin\/session$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          tenant_id: dashboardFixture.tenant_id,
+          slug: "demo-ufa",
+          display_name: "Бережный свет · демо",
+          timezone: "Asia/Yekaterinburg",
+          role: "operator",
+        },
+      ]),
+    });
+  });
+  await page.route(/\/api\/admin\/catalog\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        tenant_id: dashboardFixture.tenant_id,
+        role: "operator",
+        branches: [
+          {
+            id: "d1000000-0000-0000-0000-000000000001",
+            name: "Демо-точка",
+            city: "Уфа",
+            timezone: "Asia/Yekaterinburg",
+            pickup_enabled: true,
+            delivery_enabled: true,
+            state: "active",
+          },
+        ],
+        models: [
+          {
+            id: "d2000000-0000-0000-0000-000000000001",
+            name: "Синтетическая фотолампа",
+            manufacturer: null,
+            description: "Тестовая модель",
+            included_items: ["лампа"],
+            illustration: "compact",
+            publication_state: "published",
+          },
+        ],
+        pricing: [],
+        assets: [
+          {
+            id: "d3000000-0000-0000-0000-000000000001",
+            branch_id: "d1000000-0000-0000-0000-000000000001",
+            branch_name: "Демо-точка",
+            equipment_model_id: "d2000000-0000-0000-0000-000000000001",
+            model_name: "Синтетическая фотолампа",
+            asset_code: "PRIVATE-ASSET-01",
+            serial_no: "PRIVATE-SERIAL-01",
+            state: "available",
+          },
+        ],
+        asset_blocks: [],
+      }),
+    });
+  });
+  await page.route(/\/api\/admin\/dashboard\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(dashboardFixture),
+    });
+  });
+  await page.route(/\/api\/admin\/orders\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: '{"items":[],"total":0,"limit":100,"offset":0}',
+    });
+  });
+  await page.route(/\/api\/admin\/sessions$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: "[]" });
+  });
+
+  await page.goto("/admin");
+
+  await expect(page.getByText("Роль: Оператор.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Операционная сводка" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Заказы", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Экземпляры" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Модели оборудования" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Команда и роли" })).toHaveCount(0);
+  await expect(page.getByText("PRIVATE-ASSET-01", { exact: true })).toHaveCount(0);
+  expect(requestedPaths.some((path) => path === "/api/admin/team")).toBe(false);
+});
+
+test("owner can add an inventory instance from the workspace", async ({ page }) => {
+  const branchId = "d1000000-0000-0000-0000-000000000001";
+  const modelId = "d2000000-0000-0000-0000-000000000001";
+  const assets: Array<Record<string, unknown>> = [];
+  const catalog = () => ({
+    tenant_id: dashboardFixture.tenant_id,
+    role: "owner",
+    branches: [
+      {
+        id: branchId,
+        name: "Демо-точка",
+        city: "Уфа",
+        timezone: "Asia/Yekaterinburg",
+        pickup_enabled: true,
+        delivery_enabled: true,
+        state: "active",
+      },
+    ],
+    models: [
+      {
+        id: modelId,
+        name: "Синтетическая фотолампа",
+        manufacturer: null,
+        description: "Тестовая модель",
+        included_items: ["лампа"],
+        illustration: "compact",
+        publication_state: "published",
+      },
+    ],
+    pricing: [],
+    assets,
+    asset_blocks: [],
+  });
+  await page.route(/\/api\/admin\/session$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          tenant_id: dashboardFixture.tenant_id,
+          slug: "demo-ufa",
+          display_name: "Бережный свет · демо",
+          timezone: "Asia/Yekaterinburg",
+          role: "owner",
+        },
+      ]),
+    });
+  });
+  await page.route(/\/api\/admin\/catalog(?:\/assets)?\?.*$/, async (route) => {
+    if (route.request().method() === "POST") {
+      expect(route.request().postDataJSON()).toEqual({
+        asset_code: "DEMO-UFA-99",
+        branch_id: branchId,
+        equipment_model_id: modelId,
+        state: "available",
+      });
+      assets.push({
+        id: "d3000000-0000-0000-0000-000000000099",
+        branch_id: branchId,
+        branch_name: "Демо-точка",
+        equipment_model_id: modelId,
+        model_name: "Синтетическая фотолампа",
+        asset_code: "DEMO-UFA-99",
+        serial_no: null,
+        state: "available",
+      });
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: '{"id":"d3000000-0000-0000-0000-000000000099"}',
+      });
+      return;
+    }
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(catalog()) });
+  });
+  await page.route(/\/api\/admin\/dashboard\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(dashboardFixture),
+    });
+  });
+  await page.route(/\/api\/admin\/orders\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: '{"items":[],"total":0,"limit":100,"offset":0}',
+    });
+  });
+  await page.route(/\/api\/admin\/team\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        tenant_id: dashboardFixture.tenant_id,
+        can_manage: true,
+        members: [],
+      }),
+    });
+  });
+  await page.route(/\/api\/admin\/team\/invitations\?.*$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: "[]" });
+  });
+  await page.route(/\/api\/admin\/sessions$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: "[]" });
+  });
+
+  await page.goto("/admin");
+  await page.getByText("Добавить прибор", { exact: true }).click();
+  await page.getByLabel("Внутренний код").fill("DEMO-UFA-99");
+  await page.getByRole("button", { name: "Добавить", exact: true }).click();
+
+  await expect(page.getByText("DEMO-UFA-99", { exact: true })).toBeVisible();
+  await expect(page.getByText("Изменение сохранено в demo-каталоге.")).toBeVisible();
+});
+
+test("a server-side role downgrade removes stale catalog controls", async ({ page }) => {
+  let role: "owner" | "courier" = "owner";
+  await page.route(/\/api\/admin\/session$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          tenant_id: dashboardFixture.tenant_id,
+          slug: "demo-ufa",
+          display_name: "Бережный свет · демо",
+          timezone: "Asia/Yekaterinburg",
+          role,
+        },
+      ]),
+    });
+  });
+  await page.route(/\/api\/admin\/catalog\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        tenant_id: dashboardFixture.tenant_id,
+        role: "owner",
+        branches: [],
+        models: [
+          {
+            id: "d2000000-0000-0000-0000-000000000001",
+            name: "Синтетическая фотолампа",
+            manufacturer: null,
+            description: "Тестовая модель",
+            included_items: ["лампа"],
+            illustration: "compact",
+            publication_state: "published",
+          },
+        ],
+        pricing: [],
+        assets: [],
+        asset_blocks: [],
+      }),
+    });
+  });
+  await page.route(/\/api\/admin\/catalog\/models\/[^?]+\?.*$/, async (route) => {
+    role = "courier";
+    await route.fulfill({
+      status: 403,
+      contentType: "application/json",
+      body: '{"detail":"Owner or admin role required"}',
+    });
+  });
+  await page.route(/\/api\/admin\/dashboard\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(dashboardFixture),
+    });
+  });
+  await page.route(/\/api\/admin\/orders\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: '{"items":[],"total":0,"limit":100,"offset":0}',
+    });
+  });
+  await page.route(/\/api\/admin\/team\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        tenant_id: dashboardFixture.tenant_id,
+        can_manage: true,
+        members: [],
+      }),
+    });
+  });
+  await page.route(/\/api\/admin\/team\/invitations\?.*$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: "[]" });
+  });
+  await page.route(/\/api\/admin\/sessions$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: "[]" });
+  });
+
+  await page.goto("/admin");
+  await page.getByRole("button", { name: "Снять с витрины" }).click();
+
+  await expect(page.getByText("Роль: Курьер.")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Рабочее место курьера готовится" }),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Модели оборудования" })).toHaveCount(0);
+});
+
 test("admin workspace is keyboard reachable and accessible", async ({ page }) => {
   await page.goto("/admin");
   await page.keyboard.press("Tab");
