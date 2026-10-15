@@ -45,16 +45,22 @@ const orderFixture = {
   payment_status: "not_started",
   expires_at: "2030-01-01T12:15:00+00:00",
   confirmed_at: null,
-  confirmed_by_staff_user_id: null,
   handed_over_at: null,
-  handed_over_by_staff_user_id: null,
   returned_at: null,
-  returned_by_staff_user_id: null,
   completed_at: null,
-  completed_by_staff_user_id: null,
   inspection_outcome: null,
   created_at: "2030-01-01T12:00:00+00:00",
   updated_at: "2030-01-01T12:00:00+00:00",
+} as const satisfies AdminOrder;
+
+const phoneOrderFixture = {
+  ...orderFixture,
+  state: "confirmed",
+  source: "phone",
+  identity_verified: false,
+  expires_at: null,
+  confirmed_at: "2030-01-01T12:05:00+00:00",
+  updated_at: "2030-01-01T12:05:00+00:00",
 } as const satisfies AdminOrder;
 
 const dashboardFixture = {
@@ -660,6 +666,168 @@ test("a server-side role downgrade removes stale catalog controls", async ({ pag
   await expect(page.getByRole("heading", { name: "Модели оборудования" })).toHaveCount(0);
 });
 
+test("a role downgrade purges an already revealed order contact", async ({ page }) => {
+  let role: "operator" | "courier" = "operator";
+  await page.route(/\/api\/admin\/session$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          tenant_id: dashboardFixture.tenant_id,
+          slug: "demo-ufa",
+          display_name: "Бережный свет · демо",
+          timezone: "Asia/Yekaterinburg",
+          role,
+        },
+      ]),
+    });
+  });
+  await page.route(/\/api\/admin\/catalog\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        tenant_id: dashboardFixture.tenant_id,
+        role: "operator",
+        branches: [],
+        models: [],
+        pricing: [],
+        assets: [],
+        asset_blocks: [],
+      }),
+    });
+  });
+  await page.route(/\/api\/admin\/dashboard\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(dashboardFixture),
+    });
+  });
+  await page.route(/\/api\/admin\/orders\?.*$/, async (route) => {
+    if (role === "courier") {
+      await route.fulfill({
+        status: 403,
+        contentType: "application/json",
+        body: '{"detail":"Owner, admin or operator role required"}',
+      });
+      return;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ items: [phoneOrderFixture], total: 1, limit: 100, offset: 0 }),
+    });
+  });
+  await page.route(/\/api\/admin\/orders\/[^/]+\/contact\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        contact: {
+          phone_e164: "+70000000000",
+          recipient_name: "Тестовый клиент",
+          delivery_address: null,
+        },
+        replayed: false,
+      }),
+    });
+  });
+  await page.route(/\/api\/admin\/sessions$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: "[]" });
+  });
+
+  await page.goto("/admin");
+  await page.getByText("Синтетическая фотолампа", { exact: true }).click();
+  await page.getByRole("button", { name: "Показать контакт" }).click();
+  await expect(page.getByRole("link", { name: "+70000000000" })).toBeVisible();
+  role = "courier";
+  await page.locator(".admin-orders").getByRole("button", { name: "Обновить" }).click();
+
+  await expect(page.getByText("Роль: Курьер.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "+70000000000" })).toHaveCount(0);
+  await expect(page.getByText("Тестовый клиент", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Заказы", exact: true })).toHaveCount(0);
+});
+
+test("a disabled membership purges the tenant workspace and revealed contact", async ({ page }) => {
+  let membershipActive = true;
+  await page.route(/\/api\/admin\/session$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: membershipActive
+        ? JSON.stringify([
+            {
+              tenant_id: dashboardFixture.tenant_id,
+              slug: "demo-ufa",
+              display_name: "Бережный свет · демо",
+              timezone: "Asia/Yekaterinburg",
+              role: "operator",
+            },
+          ])
+        : "[]",
+    });
+  });
+  await page.route(/\/api\/admin\/catalog\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        tenant_id: dashboardFixture.tenant_id,
+        role: "operator",
+        branches: [],
+        models: [],
+        pricing: [],
+        assets: [],
+        asset_blocks: [],
+      }),
+    });
+  });
+  await page.route(/\/api\/admin\/dashboard\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(dashboardFixture),
+    });
+  });
+  await page.route(/\/api\/admin\/orders\?.*$/, async (route) => {
+    if (!membershipActive) {
+      await route.fulfill({
+        status: 404,
+        contentType: "application/json",
+        body: '{"detail":"Tenant not found"}',
+      });
+      return;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ items: [phoneOrderFixture], total: 1, limit: 100, offset: 0 }),
+    });
+  });
+  await page.route(/\/api\/admin\/orders\/[^/]+\/contact\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        contact: {
+          phone_e164: "+70000000000",
+          recipient_name: "Тестовый клиент",
+          delivery_address: null,
+        },
+        replayed: false,
+      }),
+    });
+  });
+  await page.route(/\/api\/admin\/sessions$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: "[]" });
+  });
+
+  await page.goto("/admin");
+  await page.getByText("Синтетическая фотолампа", { exact: true }).click();
+  await page.getByRole("button", { name: "Показать контакт" }).click();
+  await expect(page.getByRole("link", { name: "+70000000000" })).toBeVisible();
+  membershipActive = false;
+  await page.locator(".admin-orders").getByRole("button", { name: "Обновить" }).click();
+
+  await expect(page.getByRole("heading", { name: "Нет активной организации" })).toBeVisible();
+  await expect(page.getByLabel("Организация")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "+70000000000" })).toHaveCount(0);
+  await expect(page.getByText("Тестовый клиент", { exact: true })).toHaveCount(0);
+});
+
 test("admin workspace is keyboard reachable and accessible", async ({ page }) => {
   await page.goto("/admin");
   await page.keyboard.press("Tab");
@@ -689,7 +857,6 @@ test("staff can review and confirm an order from the tenant queue", async ({ pag
       ...currentOrder,
       state: "confirmed",
       confirmed_at: "2030-01-01T12:05:00+00:00",
-      confirmed_by_staff_user_id: "d5000000-0000-0000-0000-000000000001",
       updated_at: "2030-01-01T12:05:00+00:00",
     };
     await route.fulfill({
@@ -721,9 +888,7 @@ test("staff can filter overdue rentals and approve an extension request", async 
     overdue_days: 2,
     expires_at: null,
     confirmed_at: "2030-01-01T12:05:00+00:00",
-    confirmed_by_staff_user_id: "d5000000-0000-0000-0000-000000000001",
     handed_over_at: "2030-01-10T09:00:00+00:00",
-    handed_over_by_staff_user_id: "d5000000-0000-0000-0000-000000000001",
     extension_request: {
       request_id: "d9100000-0000-0000-0000-000000000001",
       state: "pending",
@@ -813,7 +978,6 @@ test("staff can create a synthetic phone order without an SMS integration", asyn
       identity_verified: false,
       expires_at: null,
       confirmed_at: "2030-01-01T12:05:00+00:00",
-      confirmed_by_staff_user_id: "d5000000-0000-0000-0000-000000000001",
       snapshot: {
         ...orderFixture.snapshot,
         model_id: body.model_id,
@@ -861,7 +1025,6 @@ test("staff can create a synthetic phone order without an SMS integration", asyn
           ...current,
           state: "in_progress",
           handed_over_at: "2030-01-01T12:10:00+00:00",
-          handed_over_by_staff_user_id: "d5000000-0000-0000-0000-000000000001",
           updated_at: "2030-01-01T12:10:00+00:00",
         };
       } else if (action === "return") {
@@ -869,7 +1032,6 @@ test("staff can create a synthetic phone order without an SMS integration", asyn
           ...current,
           state: "returned",
           returned_at: "2030-01-03T12:10:00+00:00",
-          returned_by_staff_user_id: "d5000000-0000-0000-0000-000000000001",
           updated_at: "2030-01-03T12:10:00+00:00",
         };
       } else {
@@ -878,7 +1040,6 @@ test("staff can create a synthetic phone order without an SMS integration", asyn
           ...current,
           state: "completed",
           completed_at: "2030-01-03T12:15:00+00:00",
-          completed_by_staff_user_id: "d5000000-0000-0000-0000-000000000001",
           inspection_outcome: "passed",
           updated_at: "2030-01-03T12:15:00+00:00",
         };

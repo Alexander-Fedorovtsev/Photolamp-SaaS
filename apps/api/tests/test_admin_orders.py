@@ -148,6 +148,7 @@ async def test_staff_order_queue_snapshot_and_idempotent_transitions() -> None:
 
                 no_session = await client.get(f"/api/v1/t/{TENANT_UFA}/orders")
                 assert no_session.status_code == 401
+                assert no_session.headers["cache-control"] == "no-store"
                 queue = await client.get(
                     f"/api/v1/t/{TENANT_UFA}/orders?state=held", headers=headers
                 )
@@ -157,7 +158,14 @@ async def test_staff_order_queue_snapshot_and_idempotent_transitions() -> None:
                 item = queue.json()["items"][0]
                 assert item["identity_verified"] is False
                 assert item["payment_status"] == "not_started"
-                for forbidden in ("phone", "email", "address", "asset_code", "serial_no"):
+                for forbidden in (
+                    "phone",
+                    "email",
+                    "address",
+                    "asset_code",
+                    "serial_no",
+                    "staff_user_id",
+                ):
                     assert forbidden not in queue.text
 
                 with pytest.raises(DBAPIError, match="order_snapshot is immutable"):
@@ -224,7 +232,7 @@ async def test_staff_order_queue_snapshot_and_idempotent_transitions() -> None:
                 )
                 assert confirmed.status_code == 200
                 assert confirmed.json()["order"]["state"] == "confirmed"
-                assert confirmed.json()["order"]["confirmed_by_staff_user_id"] == str(DEMO_USER)
+                assert "confirmed_by_staff_user_id" not in confirmed.text
                 assert confirmed.json()["replayed"] is False
                 replay = await client.post(
                     f"/api/v1/t/{TENANT_UFA}/orders/{order_id}/confirm",

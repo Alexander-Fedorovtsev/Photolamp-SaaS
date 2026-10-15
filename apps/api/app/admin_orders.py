@@ -56,13 +56,9 @@ class StaffOrder(BaseModel):
     payment_status: Literal["not_started"] = "not_started"
     expires_at: datetime | None
     confirmed_at: datetime | None
-    confirmed_by_staff_user_id: UUID | None
     handed_over_at: datetime | None
-    handed_over_by_staff_user_id: UUID | None
     returned_at: datetime | None
-    returned_by_staff_user_id: UUID | None
     completed_at: datetime | None
-    completed_by_staff_user_id: UUID | None
     inspection_outcome: InspectionOutcome | None
     created_at: datetime
     updated_at: datetime
@@ -177,13 +173,9 @@ def _staff_order_from_row(row: object) -> StaffOrder:
         identity_verified=mapping["phone_verified_at"] is not None,
         expires_at=mapping["expires_at"],
         confirmed_at=mapping["confirmed_at"],
-        confirmed_by_staff_user_id=mapping["confirmed_by_staff_user_id"],
         handed_over_at=mapping["handed_over_at"],
-        handed_over_by_staff_user_id=mapping["handed_over_by_staff_user_id"],
         returned_at=mapping["returned_at"],
-        returned_by_staff_user_id=mapping["returned_by_staff_user_id"],
         completed_at=mapping["completed_at"],
-        completed_by_staff_user_id=mapping["completed_by_staff_user_id"],
         inspection_outcome=mapping["inspection_outcome"],
         created_at=mapping["created_at"],
         updated_at=mapping["updated_at"],

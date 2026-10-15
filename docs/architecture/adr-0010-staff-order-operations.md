@@ -19,7 +19,8 @@ make the record unstable.
   at order creation. Existing orders are backfilled during migration.
 - Owner, admin and operator roles can list and read orders only inside their
   authorized tenant transaction. The read model contains no phone number, address,
-  asset code, serial number or checkout capability.
+  asset code, serial number, checkout capability or internal staff UUID. Actor IDs
+  remain available only in database audit columns and `order_events`.
 - Staff confirmation is an explicit atomic transition from `held` to `confirmed`.
   It requires a linked, previously verified tenant customer and an unexpired hold.
   The allocation becomes `confirmed` in the same transaction and keeps the
@@ -33,6 +34,10 @@ make the record unstable.
   routes. The browser keeps the opaque staff credential in an HttpOnly cookie,
   validates privacy-minimized responses, filters the tenant queue by state and
   exposes only transitions allowed by the backend contract.
+- Protected order responses, including 401/403/404/409 failures, are marked
+  `Cache-Control: no-store`. If a membership is disabled or downgraded while the
+  workspace is open, the browser immediately removes cached order/contact state,
+  reloads active memberships and renders the new role boundary.
 - Operators receive only the branch/model/pricing projection needed by the phone
   order form. Physical asset identifiers and catalog mutations remain limited to
   owner/admin. Couriers cannot open the shared order queue; a future courier API

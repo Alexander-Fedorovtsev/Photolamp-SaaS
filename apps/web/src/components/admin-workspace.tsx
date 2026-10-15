@@ -142,18 +142,28 @@ export function AdminWorkspace() {
     try {
       const response = await fetch("/api/admin/session", { cache: "no-store" });
       if (response.status === 401) {
-        setSession("anonymous");
+        clearSession();
         return;
       }
       if (!response.ok) throw new Error("Не удалось проверить сессию");
       const data = membershipSchema.array().parse(await response.json());
       setMemberships((current) => (sameMemberships(current, data) ? current : data));
-      setTenantId((current) => current || data[0]?.tenant_id || "");
+      setTenantId((current) =>
+        data.some((membership) => membership.tenant_id === current)
+          ? current
+          : (data[0]?.tenant_id ?? ""),
+      );
       setSession("authenticated");
     } catch {
       setSession("error");
     }
-  }, []);
+  }, [clearSession]);
+
+  const refreshAccess = useCallback(() => {
+    setCatalog(null);
+    setNotice("Права доступа изменились. Рабочее пространство обновлено.");
+    void loadSession();
+  }, [loadSession]);
 
   const loadCatalog = useCallback(
     async (selectedTenant: string, role: StaffRole) => {
@@ -169,13 +179,12 @@ export function AdminWorkspace() {
         },
       );
       if (response.status === 401) {
-        setSession("anonymous");
-        setCatalog(null);
+        clearSession();
         return;
       }
       if (!response.ok) {
         setCatalog(null);
-        if (response.status === 403) await loadSession();
+        if (response.status === 403 || response.status === 404) await loadSession();
         throw new Error("Не удалось загрузить доступное рабочее пространство");
       }
       const nextCatalog = adminCatalogSchema.parse(await response.json());
@@ -190,7 +199,7 @@ export function AdminWorkspace() {
       });
       setCatalog(nextCatalog);
     },
-    [loadSession],
+    [clearSession, loadSession],
   );
 
   useEffect(() => {
@@ -430,6 +439,7 @@ export function AdminWorkspace() {
               tenantId={tenantId}
               refreshKey={dashboardRefresh}
               onUnauthorized={clearSession}
+              onAccessChanged={refreshAccess}
               onOpenOrders={openOrderQueue}
             />
 
@@ -439,6 +449,7 @@ export function AdminWorkspace() {
               timeZone={currentTenant?.timezone ?? "UTC"}
               catalog={catalog}
               onUnauthorized={clearSession}
+              onAccessChanged={refreshAccess}
               initialFilter={orderTarget.filter}
               onChanged={refreshDashboard}
             />

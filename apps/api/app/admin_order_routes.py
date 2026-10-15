@@ -40,14 +40,23 @@ Transaction = Annotated[TenantTransaction, Depends(authorized_tenant_transaction
 
 
 def translate_order_error(error: Exception) -> HTTPException:
+    headers = {"Cache-Control": "no-store"}
     if isinstance(error, OrderPermissionDenied):
-        return HTTPException(status_code=403, detail="Owner, admin or operator role required")
+        return HTTPException(
+            status_code=403,
+            detail="Owner, admin or operator role required",
+            headers=headers,
+        )
     if isinstance(error, OrderNotFound):
-        return HTTPException(status_code=404, detail="Order not found")
+        return HTTPException(status_code=404, detail="Order not found", headers=headers)
     if isinstance(error, OrderTransitionConflict):
-        return HTTPException(status_code=409, detail=str(error))
+        return HTTPException(status_code=409, detail=str(error), headers=headers)
     if isinstance(error, OrderContactUnavailable):
-        return HTTPException(status_code=409, detail="Order contact details are unavailable")
+        return HTTPException(
+            status_code=409,
+            detail="Order contact details are unavailable",
+            headers=headers,
+        )
     raise error
 
 

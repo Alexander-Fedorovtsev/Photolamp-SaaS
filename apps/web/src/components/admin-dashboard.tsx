@@ -45,11 +45,13 @@ export function AdminDashboard({
   tenantId,
   refreshKey,
   onUnauthorized,
+  onAccessChanged,
   onOpenOrders,
 }: {
   tenantId: string;
   refreshKey: number;
   onUnauthorized: () => void;
+  onAccessChanged: () => void;
   onOpenOrders: (filter: OrderFilter) => void;
 }) {
   const [dashboard, setDashboard] = useState<OperationsDashboard | null>(null);
@@ -69,6 +71,12 @@ export function AdminDashboard({
         return;
       }
       const payload = (await response.json().catch(() => ({}))) as unknown;
+      const detail = (payload as { detail?: unknown }).detail;
+      if (response.status === 403 || (response.status === 404 && detail === "Tenant not found")) {
+        setDashboard(null);
+        onAccessChanged();
+        return;
+      }
       if (!response.ok) {
         throw new Error((payload as { detail?: string }).detail ?? "Не удалось загрузить сводку");
       }
@@ -79,7 +87,7 @@ export function AdminDashboard({
     } finally {
       setLoading(false);
     }
-  }, [onUnauthorized, tenantId]);
+  }, [onAccessChanged, onUnauthorized, tenantId]);
 
   useEffect(() => {
     // Tenant selection and completed order actions invalidate the server read model.

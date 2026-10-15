@@ -19,6 +19,7 @@ TENANT_UFA = UUID("d0000000-0000-0000-0000-000000000001")
 TENANT_KAZAN = UUID("d0000000-0000-0000-0000-000000000002")
 BRANCH_UFA = UUID("d1000000-0000-0000-0000-000000000001")
 MODEL_UFA = UUID("d2000000-0000-0000-0000-000000000001")
+DEMO_USER = UUID("d5000000-0000-0000-0000-000000000001")
 SYNTHETIC_PHONE = "+70000000000"
 
 
@@ -95,6 +96,31 @@ async def set_public_booking(owner_url: str, enabled: bool) -> None:
         await owner.dispose()
 
 
+async def set_demo_membership(
+    owner_url: str,
+    *,
+    role: str,
+    state: str = "active",
+) -> None:
+    owner = create_async_engine(owner_url)
+    try:
+        async with owner.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE tenant_memberships SET role = :role, state = :state "
+                    "WHERE tenant_id = :tenant AND user_id = :user_id"
+                ),
+                {
+                    "role": role,
+                    "state": state,
+                    "tenant": TENANT_UFA,
+                    "user_id": DEMO_USER,
+                },
+            )
+    finally:
+        await owner.dispose()
+
+
 @pytest.mark.integration
 async def test_phone_order_fulfillment_is_encrypted_audited_and_releases_inventory() -> None:
     runtime_url, owner_url = database_urls()
@@ -156,6 +182,7 @@ async def test_phone_order_fulfillment_is_encrypted_audited_and_releases_invento
                 assert order["expires_at"] is None
                 assert SYNTHETIC_PHONE not in created.text
                 assert "Тестовый клиент" not in created.text
+                assert "staff_user_id" not in created.text
 
                 replay = await client.post(
                     f"/api/v1/t/{TENANT_UFA}/orders/phone", headers=headers, json=command
@@ -180,6 +207,18 @@ async def test_phone_order_fulfillment_is_encrypted_audited_and_releases_invento
                     f"/api/v1/t/{TENANT_KAZAN}/orders/{order_id}", headers=headers
                 )
                 assert cross_tenant.status_code == 404
+
+                for role in ("admin", "operator"):
+                    await set_demo_membership(owner_url, role=role)
+                    role_queue = await client.get(f"/api/v1/t/{TENANT_UFA}/orders", headers=headers)
+                    role_detail = await client.get(
+                        f"/api/v1/t/{TENANT_UFA}/orders/{order_id}", headers=headers
+                    )
+                    assert role_queue.status_code == 200, role
+                    assert role_detail.status_code == 200, role
+                    assert role_queue.headers["cache-control"] == "no-store"
+                    assert SYNTHETIC_PHONE not in role_queue.text
+                    assert SYNTHETIC_PHONE not in role_detail.text
 
                 async with owner.begin() as connection:
                     stored = (
@@ -264,6 +303,60 @@ async def test_phone_order_fulfillment_is_encrypted_audited_and_releases_invento
                 )
                 assert contact_replay.status_code == 200
                 assert contact_replay.json()["replayed"] is True
+
+                await set_demo_membership(owner_url, role="courier")
+                courier_requests = (
+                    await client.get(f"/api/v1/t/{TENANT_UFA}/orders", headers=headers),
+                    await client.get(f"/api/v1/t/{TENANT_UFA}/orders/{order_id}", headers=headers),
+                    await client.post(
+                        f"/api/v1/t/{TENANT_UFA}/orders/{order_id}/contact-access",
+                        headers={
+                            **headers,
+                            "Idempotency-Key": "synthetic-courier-contact-0001",
+                        },
+                    ),
+                    await client.post(
+                        f"/api/v1/t/{TENANT_UFA}/orders/{order_id}/handover",
+                        headers={
+                            **headers,
+                            "Idempotency-Key": "synthetic-courier-handover-0001",
+                        },
+                    ),
+                    await client.post(
+                        f"/api/v1/t/{TENANT_UFA}/orders/phone",
+                        headers={
+                            **headers,
+                            "Idempotency-Key": "synthetic-courier-phone-0001",
+                        },
+                        json=command,
+                    ),
+                )
+                for forbidden in courier_requests:
+                    assert forbidden.status_code == 403
+                    assert forbidden.headers["cache-control"] == "no-store"
+                    assert SYNTHETIC_PHONE not in forbidden.text
+                    assert "Тестовый клиент" not in forbidden.text
+
+                await set_demo_membership(owner_url, role="operator", state="disabled")
+                disabled_queue = await client.get(f"/api/v1/t/{TENANT_UFA}/orders", headers=headers)
+                disabled_contact = await client.post(
+                    f"/api/v1/t/{TENANT_UFA}/orders/{order_id}/contact-access",
+                    headers={
+                        **headers,
+                        "Idempotency-Key": "synthetic-disabled-contact-0001",
+                    },
+                )
+                for denied in (disabled_queue, disabled_contact):
+                    assert denied.status_code == 404
+                    assert denied.json()["detail"] == "Tenant not found"
+                    assert denied.headers["cache-control"] == "no-store"
+                    assert SYNTHETIC_PHONE not in denied.text
+                active_memberships = await client.get("/api/v1/me/tenants", headers=headers)
+                assert active_memberships.status_code == 200
+                assert str(TENANT_UFA) not in {
+                    membership["tenant_id"] for membership in active_memberships.json()
+                }
+                await set_demo_membership(owner_url, role="owner")
 
                 reused_contact_key = await client.post(
                     f"/api/v1/t/{TENANT_UFA}/orders/{order_id}/handover",
@@ -442,6 +535,7 @@ async def test_phone_order_fulfillment_is_encrypted_audited_and_releases_invento
                 await connection.execute(text("SELECT order_id FROM order_private_details"))
             ).all() == []
     finally:
+        await set_demo_membership(owner_url, role="owner")
         await clear_data(owner_url)
         await set_public_booking(owner_url, False)
         await runtime.dispose()
