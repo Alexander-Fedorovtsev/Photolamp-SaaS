@@ -382,6 +382,14 @@ async def _transition_order(
             ),
             {"tenant_id": transaction.tenant_id, "order_id": order_id},
         )
+        await transaction.session.execute(
+            text(
+                "UPDATE courier_tasks SET state = 'cancelled', updated_at = now() "
+                "WHERE tenant_id = :tenant_id AND order_id = :order_id "
+                "AND state IN ('assigned', 'accepted')"
+            ),
+            {"tenant_id": transaction.tenant_id, "order_id": order_id},
+        )
 
     await transaction.session.execute(
         text(
@@ -545,7 +553,7 @@ async def _load_fulfillment_order(transaction: TenantTransaction, order_id: UUID
     row = (
         await transaction.session.execute(
             text(
-                "SELECT o.id, o.state, o.allocation_id, ra.asset_id, "
+                "SELECT o.id, o.state, o.fulfillment, o.allocation_id, ra.asset_id, "
                 "ra.state AS allocation_state, a.state AS asset_state "
                 "FROM orders o JOIN rental_allocations ra "
                 "ON ra.tenant_id = o.tenant_id AND ra.id = o.allocation_id "
@@ -574,6 +582,15 @@ async def hand_over_order(
     order = await _load_fulfillment_order(transaction, order_id)
     if order.state != "confirmed":  # type: ignore[attr-defined]
         raise OrderTransitionConflict("Only a confirmed order can be handed over")
+    assigned_delivery = await transaction.session.scalar(
+        text(
+            "SELECT EXISTS (SELECT 1 FROM courier_tasks WHERE tenant_id = :tenant_id "
+            "AND order_id = :order_id AND state IN ('assigned', 'accepted'))"
+        ),
+        {"tenant_id": transaction.tenant_id, "order_id": order_id},
+    )
+    if order.fulfillment == "delivery" and assigned_delivery:  # type: ignore[attr-defined]
+        raise OrderTransitionConflict("Assigned delivery must be picked up by its courier")
     if order.allocation_state != "confirmed":  # type: ignore[attr-defined]
         raise OrderTransitionConflict("The confirmed inventory allocation is unavailable")
     changed = await transaction.session.scalar(

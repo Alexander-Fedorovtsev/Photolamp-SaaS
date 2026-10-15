@@ -886,6 +886,68 @@ h3 {
   color: #245f72;
   font-weight: 800;
 }
+.courier-assignment-panel label {
+  display: grid;
+  gap: 6px;
+  min-width: min(260px, 100%);
+}
+.courier-task-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.courier-task-card {
+  padding: 22px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+}
+.courier-task-card h3 {
+  margin: 16px 0;
+}
+.courier-task-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.courier-task-card dl {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+.courier-task-card dl div {
+  display: grid;
+  gap: 4px;
+}
+.courier-task-card dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.courier-task-card dd {
+  margin: 0;
+  font-weight: 700;
+}
+.courier-contact-panel {
+  margin-top: 18px;
+  padding: 16px;
+  background: #f7f6f1;
+  border-radius: 14px;
+}
+.status-assigned {
+  color: #725317;
+  background: #fff0c8;
+}
+.status-accepted,
+.status-picked_up {
+  color: #245f72;
+  background: #dceef3;
+}
+.status-delivered {
+  color: #285648;
+  background: #dcefe5;
+}
 .admin-empty-state {
   margin-top: 22px;
   padding: 28px;
@@ -1056,6 +1118,9 @@ h3 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+  .courier-task-grid {
     grid-template-columns: 1fr;
   }
   .dashboard-inventory,

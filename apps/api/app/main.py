@@ -20,6 +20,7 @@ from app.catalog import PreviewTenant, PublicCatalog, load_public_catalog, previ
 from app.checkout import CheckoutSession, create_checkout_session
 from app.config import Settings
 from app.contact_crypto import ContactCipher
+from app.courier_routes import router as courier_router
 from app.customer_auth import (
     CustomerIdentity,
     CustomerSession,
@@ -124,6 +125,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "remain availability-safe. SMS notification jobs fail closed while the provider "
             "is disabled. A privacy-minimized tenant dashboard summarizes daily operations "
             "and inventory without exposing customer contacts or asset identifiers."
+            " Assigned outbound deliveries have a separate least-privilege courier queue; "
+            "pickup updates the existing order and inventory lifecycle atomically, while "
+            "delivery contact access remains explicit and audited."
             " Tenant owners can administer privacy-safe staff memberships and create expiring, "
             "one-time invitations. Staff choose a non-personal login and password at redemption; "
             "they can inventory and revoke their own privacy-minimized active sessions. SMS "
@@ -135,6 +139,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(admin_order_router)
     application.include_router(admin_dashboard_router)
     application.include_router(admin_team_router)
+    application.include_router(courier_router)
     application.include_router(staff_auth_router)
     application.include_router(staff_session_router)
 
