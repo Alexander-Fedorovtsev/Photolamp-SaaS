@@ -695,7 +695,7 @@ test("owner can add an inventory instance from the workspace", async ({ page }) 
   await page.getByRole("button", { name: "Добавить", exact: true }).click();
 
   await expect(page.getByText("DEMO-UFA-99", { exact: true })).toBeVisible();
-  await expect(page.getByText("Изменение сохранено в demo-каталоге.")).toBeVisible();
+  await expect(page.getByText("Изменение сохранено в каталоге организации.")).toBeVisible();
 });
 
 test("a server-side role downgrade removes stale catalog controls", async ({ page }) => {

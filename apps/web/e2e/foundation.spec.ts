@@ -12,6 +12,12 @@ test("home links to independent demo storefronts", async ({ page }) => {
   ).toBeVisible();
   await expect(page.locator(".catalog-card")).toHaveCount(2);
   await expect(page.getByRole("heading", { name: "Домашняя LED-фотолампа" })).toBeVisible();
+  const homeLamp = page.locator(".catalog-card").filter({ hasText: "Домашняя LED-фотолампа" });
+  await expect(homeLamp).toContainText("Комплект: лампа, защитный кейс, инструкция производителя");
+  await expect(homeLamp).toContainText("490 ₽ / день");
+  await expect(homeLamp).toContainText("3 дня–30 дней");
+  await expect(homeLamp).toContainText("Без залога");
+  await expect(homeLamp).toContainText("1 из 2 приборов в статусе «доступен»");
   await expect(page.locator("#catalog")).toContainText("данные из PostgreSQL");
   await expect(page.getByRole("button", { name: "Перейти к бронированию — скоро" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Заказать по телефону — скоро" })).toBeDisabled();

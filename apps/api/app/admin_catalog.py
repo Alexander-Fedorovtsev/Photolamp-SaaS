@@ -256,6 +256,10 @@ async def create_branch(transaction: TenantTransaction, command: BranchCreate) -
 
 async def create_model(transaction: TenantTransaction, command: ModelCreate) -> UUID:
     require_catalog_editor(transaction)
+    if command.publication_state == "published":
+        raise InvalidCatalogCommand(
+            "Чтобы опубликовать модель, сначала сохраните её как черновик и активируйте тариф"
+        )
     entity_id = uuid4()
     values = command.model_dump()
     await transaction.session.execute(
@@ -293,16 +297,19 @@ async def create_pricing(transaction: TenantTransaction, command: PricingCreate)
         raise InvalidCatalogCommand("maximum_days must be greater than or equal to minimum_days")
     entity_id = uuid4()
     values = command.model_dump()
-    await transaction.session.execute(
+    result = await transaction.session.execute(
         text(
             "INSERT INTO pricing_rules (id, tenant_id, equipment_model_id, "
             "amount_minor_per_day, deposit_minor, minimum_days, maximum_days, state, "
-            "is_demo) VALUES (:id, :tenant_id, :equipment_model_id, "
+            "is_demo) SELECT :id, :tenant_id, :equipment_model_id, "
             ":amount_minor_per_day, :deposit_minor, :minimum_days, :maximum_days, "
-            ":state, true)"
+            ":state, s.is_demo FROM storefront_profiles s WHERE s.tenant_id = :tenant_id "
+            "RETURNING id"
         ),
         {"id": entity_id, "tenant_id": transaction.tenant_id, **values},
     )
+    if result.scalar_one_or_none() is None:
+        raise InvalidCatalogCommand("Для организации не настроен профиль витрины")
     await record_audit(transaction, "pricing.created", "pricing_rule", entity_id, values)
     return entity_id
 
@@ -385,6 +392,24 @@ async def patch_branch(
 
 
 async def patch_model(transaction: TenantTransaction, entity_id: UUID, command: ModelPatch) -> None:
+    if command.publication_state == "published":
+        readiness = (
+            await transaction.session.execute(
+                text(
+                    "SELECT EXISTS ("
+                    "SELECT 1 FROM pricing_rules p WHERE p.equipment_model_id = m.id "
+                    "AND p.state = 'active') AS has_active_pricing "
+                    "FROM equipment_models m WHERE m.id = :entity_id"
+                ),
+                {"entity_id": entity_id},
+            )
+        ).one_or_none()
+        if readiness is None:
+            raise CatalogEntityNotFound
+        if not readiness.has_active_pricing:
+            raise InvalidCatalogCommand(
+                "Чтобы опубликовать модель, сначала активируйте для неё тариф"
+            )
     await _patch_entity(
         transaction,
         table="equipment_models",
@@ -425,6 +450,24 @@ async def patch_pricing(
     maximum = values.get("maximum_days")
     if minimum is not None and maximum is not None and maximum < minimum:
         raise InvalidCatalogCommand("maximum_days must be greater than or equal to minimum_days")
+    next_state = values.get("state")
+    if next_state is not None and next_state != "active":
+        current = (
+            await transaction.session.execute(
+                text(
+                    "SELECT p.state, m.publication_state FROM pricing_rules p "
+                    "JOIN equipment_models m ON m.id = p.equipment_model_id "
+                    "WHERE p.id = :entity_id"
+                ),
+                {"entity_id": entity_id},
+            )
+        ).one_or_none()
+        if current is None:
+            raise CatalogEntityNotFound
+        if current.state == "active" and current.publication_state == "published":
+            raise InvalidCatalogCommand(
+                "Сначала снимите модель с витрины, затем отключите её активный тариф"
+            )
     await _patch_entity(
         transaction,
         table="pricing_rules",

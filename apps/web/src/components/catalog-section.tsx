@@ -12,6 +12,15 @@ const rubles = new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: 0,
 });
 
+function days(value: number) {
+  const mod100 = value % 100;
+  const mod10 = value % 10;
+  if (mod100 >= 11 && mod100 <= 14) return `${value} дней`;
+  if (mod10 === 1) return `${value} день`;
+  if (mod10 >= 2 && mod10 <= 4) return `${value} дня`;
+  return `${value} дней`;
+}
+
 export function CatalogSection({ catalog }: { catalog: TenantCatalog }) {
   return (
     <section id="catalog" className="section container" aria-labelledby="catalog-title" data-reveal>
@@ -35,23 +44,36 @@ export function CatalogSection({ catalog }: { catalog: TenantCatalog }) {
             <div className="catalog-card-body">
               <p className="catalog-label">Фототерапевтическая лампа</p>
               <h3>{item.name}</h3>
+              {item.manufacturer && (
+                <p className="catalog-manufacturer">Производитель: {item.manufacturer}</p>
+              )}
               <p>{item.description}</p>
               <p className="catalog-kit">
-                <strong>Демо-комплект:</strong> {item.included_items.join(", ")}.
+                <strong>Комплект:</strong> {item.included_items.join(", ")}.
               </p>
               <dl className="catalog-facts">
                 <div>
-                  <dt>Демо-тариф</dt>
+                  <dt>{item.price_is_demo ? "Демо-тариф" : "Тариф"}</dt>
                   <dd>от {rubles.format(item.amount_minor_per_day / 100)} / день</dd>
                 </div>
                 <div>
-                  <dt>Минимальный срок</dt>
-                  <dd>{item.minimum_days} дня</dd>
+                  <dt>Срок аренды</dt>
+                  <dd>
+                    {days(item.minimum_days)}–{days(item.maximum_days)}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Залог</dt>
+                  <dd>
+                    {item.deposit_minor === 0
+                      ? "Без залога"
+                      : rubles.format(item.deposit_minor / 100)}
+                  </dd>
                 </div>
               </dl>
               <p className="inventory-note">
-                Учётный статус: {item.serviceable_units} из {item.listed_units} без сервисной
-                блокировки. Доступность на даты пока не рассчитывается.
+                Учётный статус: {item.serviceable_units} из {item.listed_units} приборов в статусе
+                «доступен». Точная доступность проверяется на выбранные даты.
               </p>
             </div>
           </article>

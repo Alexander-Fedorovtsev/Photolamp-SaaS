@@ -277,7 +277,7 @@ export function AdminWorkspace() {
         { method: id ? "PATCH" : "POST", body: JSON.stringify(body) },
       );
       await loadCatalog(tenantId, currentTenant.role);
-      setNotice("Изменение сохранено в demo-каталоге.");
+      setNotice("Изменение сохранено в каталоге организации.");
       return true;
     } catch (error) {
       if (error instanceof ApiError && error.status === 403) {
@@ -503,6 +503,7 @@ function ModelSection({ catalog, busy, mutate }: SectionProps) {
     const data = new FormData(form);
     const saved = await mutate("models", {
       name: data.get("name"),
+      manufacturer: String(data.get("manufacturer") ?? "").trim() || null,
       description: data.get("description"),
       included_items: String(data.get("included_items"))
         .split(",")
@@ -532,6 +533,10 @@ function ModelSection({ catalog, busy, mutate }: SectionProps) {
               <textarea name="description" required maxLength={500} />
             </label>
             <label>
+              Производитель (необязательно)
+              <input name="manufacturer" maxLength={120} />
+            </label>
+            <label>
               Комплект через запятую
               <input
                 name="included_items"
@@ -554,36 +559,46 @@ function ModelSection({ catalog, busy, mutate }: SectionProps) {
         </details>
       </div>
       <div className="admin-card-grid">
-        {catalog.models.map((model) => (
-          <article className="admin-card" key={model.id}>
-            <span className={`status status-${model.publication_state}`}>
-              {model.publication_state === "published"
-                ? "Опубликована"
-                : model.publication_state === "draft"
-                  ? "Черновик"
-                  : "Архив"}
-            </span>
-            <h3>{model.name}</h3>
-            <p>{model.description}</p>
-            <p className="small">Комплект: {model.included_items.join(", ")}</p>
-            <button
-              className="text-button"
-              disabled={busy}
-              onClick={() =>
-                void mutate(
-                  "models",
-                  {
-                    publication_state:
-                      model.publication_state === "published" ? "draft" : "published",
-                  },
-                  model.id,
-                )
-              }
-            >
-              {model.publication_state === "published" ? "Снять с витрины" : "Опубликовать"}
-            </button>
-          </article>
-        ))}
+        {catalog.models.map((model) => {
+          const hasActivePrice = catalog.pricing.some(
+            (price) => price.equipment_model_id === model.id && price.state === "active",
+          );
+          const canPublish = model.publication_state === "published" || hasActivePrice;
+          return (
+            <article className="admin-card" key={model.id}>
+              <span className={`status status-${model.publication_state}`}>
+                {model.publication_state === "published"
+                  ? "Опубликована"
+                  : model.publication_state === "draft"
+                    ? "Черновик"
+                    : "Архив"}
+              </span>
+              <h3>{model.name}</h3>
+              {model.manufacturer && <p className="small">Производитель: {model.manufacturer}</p>}
+              <p>{model.description}</p>
+              <p className="small">Комплект: {model.included_items.join(", ")}</p>
+              {!hasActivePrice && model.publication_state !== "published" && (
+                <p className="small">Для публикации сначала создайте и активируйте тариф.</p>
+              )}
+              <button
+                className="text-button"
+                disabled={busy || !canPublish}
+                onClick={() =>
+                  void mutate(
+                    "models",
+                    {
+                      publication_state:
+                        model.publication_state === "published" ? "draft" : "published",
+                    },
+                    model.id,
+                  )
+                }
+              >
+                {model.publication_state === "published" ? "Снять с витрины" : "Опубликовать"}
+              </button>
+            </article>
+          );
+        })}
       </div>
     </section>
   );

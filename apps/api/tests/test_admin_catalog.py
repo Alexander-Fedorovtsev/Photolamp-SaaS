@@ -74,19 +74,44 @@ async def test_demo_owner_manages_catalog_and_public_read_model(
         )
     ).status_code == 200
 
+    direct_publish = await client.post(
+        f"/api/v1/t/{tenant_id}/models",
+        headers=headers,
+        json={
+            "name": f"Blocked published model {marker}",
+            "description": "A model cannot be published before its tariff exists.",
+            "included_items": ["lamp"],
+            "publication_state": "published",
+        },
+    )
+    assert direct_publish.status_code == 422
+    assert direct_publish.json()["detail"] == (
+        "Чтобы опубликовать модель, сначала сохраните её как черновик и активируйте тариф"
+    )
+
     model_response = await client.post(
         f"/api/v1/t/{tenant_id}/models",
         headers=headers,
         json={
             "name": f"Synthetic admin model {marker}",
+            "manufacturer": "Synthetic manufacturer",
             "description": "Synthetic integration-test model without customer data.",
             "included_items": ["lamp", "case", "manufacturer guide"],
             "illustration": "compact",
-            "publication_state": "published",
+            "publication_state": "draft",
         },
     )
     assert model_response.status_code == 201
     model_id = model_response.json()["id"]
+    rejected_publish = await client.patch(
+        f"/api/v1/t/{tenant_id}/models/{model_id}",
+        headers=headers,
+        json={"publication_state": "published"},
+    )
+    assert rejected_publish.status_code == 422
+    assert rejected_publish.json()["detail"] == (
+        "Чтобы опубликовать модель, сначала активируйте для неё тариф"
+    )
     assert (
         await client.patch(
             f"/api/v1/t/{tenant_id}/models/{model_id}",
@@ -135,6 +160,12 @@ async def test_demo_owner_manages_catalog_and_public_read_model(
     )
     assert pricing_response.status_code == 201
     pricing_id = pricing_response.json()["id"]
+    published = await client.patch(
+        f"/api/v1/t/{tenant_id}/models/{model_id}",
+        headers=headers,
+        json={"publication_state": "published"},
+    )
+    assert published.status_code == 200
     assert (
         await client.patch(
             f"/api/v1/t/{tenant_id}/pricing/{pricing_id}",
@@ -149,7 +180,33 @@ async def test_demo_owner_manages_catalog_and_public_read_model(
     assert any(item["id"] == block_id for item in refreshed["asset_blocks"])
     public = await client.get("/api/v1/r/demo-ufa/catalog")
     assert public.status_code == 200
-    assert any(item["id"] == model_id for item in public.json()["items"])
+    published_item = next(item for item in public.json()["items"] if item["id"] == model_id)
+    assert published_item == {
+        "id": model_id,
+        "name": f"Synthetic admin model {marker}",
+        "category": "phototherapy_lamp",
+        "manufacturer": "Synthetic manufacturer",
+        "description": "Updated synthetic model description.",
+        "included_items": ["lamp", "case", "manufacturer guide"],
+        "illustration": "compact",
+        "amount_minor_per_day": 34500,
+        "deposit_minor": 0,
+        "currency": "RUB",
+        "minimum_days": 2,
+        "maximum_days": 21,
+        "price_is_demo": True,
+        "listed_units": 1,
+        "serviceable_units": 1,
+    }
+    rejected_tariff_retirement = await client.patch(
+        f"/api/v1/t/{tenant_id}/pricing/{pricing_id}",
+        headers=headers,
+        json={"state": "retired"},
+    )
+    assert rejected_tariff_retirement.status_code == 422
+    assert rejected_tariff_retirement.json()["detail"] == (
+        "Сначала снимите модель с витрины, затем отключите её активный тариф"
+    )
 
     patched = await client.patch(
         f"/api/v1/t/{tenant_id}/assets/{asset_id}",
@@ -197,7 +254,7 @@ async def test_demo_owner_manages_catalog_and_public_read_model(
                     "block_id": block_id,
                 },
             )
-            assert audit_count == 10
+            assert audit_count == 11
             await connection.execute(
                 text(
                     "DELETE FROM audit_events "
