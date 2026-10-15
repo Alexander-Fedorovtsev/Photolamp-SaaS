@@ -97,6 +97,27 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
 
+  offsite-backup:
+    profiles: [maintenance]
+    image: photolamp-test-api:${PHOTOLAMP_DEPLOY_SHA:?An exact CI-tested SHA is required}
+    build: *api-build
+    entrypoint: ["python", "-m", "app.offsite_backup"]
+    command: ["verify"]
+    environment:
+      AWS_EC2_METADATA_DISABLED: "true"
+      OFFSITE_BACKUP_ENDPOINT_URL: ${OFFSITE_BACKUP_ENDPOINT_URL:-}
+      OFFSITE_BACKUP_REGION: ${OFFSITE_BACKUP_REGION:-}
+      OFFSITE_BACKUP_BUCKET: ${OFFSITE_BACKUP_BUCKET:-}
+      OFFSITE_BACKUP_PREFIX: ${OFFSITE_BACKUP_PREFIX:-}
+      OFFSITE_BACKUP_ADDRESSING_STYLE: ${OFFSITE_BACKUP_ADDRESSING_STYLE:-path}
+      OFFSITE_BACKUP_ACCESS_KEY_ID: ${OFFSITE_BACKUP_ACCESS_KEY_ID:-}
+      OFFSITE_BACKUP_SECRET_ACCESS_KEY: ${OFFSITE_BACKUP_SECRET_ACCESS_KEY:-}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [backup-egress]
+
   contact-maintenance:
     profiles: [maintenance]
     image: photolamp-test-api:${PHOTOLAMP_DEPLOY_SHA:?An exact CI-tested SHA is required}
@@ -146,6 +167,8 @@ networks:
   default: !reset null
   internal:
     internal: true
+  backup-egress:
+    internal: false
   traefik:
     external: true
     name: traefik

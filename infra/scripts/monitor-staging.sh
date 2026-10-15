@@ -109,6 +109,13 @@ latest_archive="${latest_record#* }"
 (cd "$backup_dir" && sha256sum --check --status "$(basename "$latest_archive").sha256") || fail 'Latest backup checksum failed'
 backup_age_seconds=$(( $(date +%s) - $(stat -c '%Y' "$latest_archive") ))
 ((backup_age_seconds >= 0 && backup_age_seconds <= maximum_backup_age_seconds)) || fail 'Latest encrypted backup is stale'
+PHOTOLAMP_APP_DIR="$app_dir" \
+PHOTOLAMP_ENV_FILE="$env_file" \
+PHOTOLAMP_BACKUP_DIR="$backup_dir" \
+PHOTOLAMP_MAINTENANCE_LOCK_HELD=true \
+PHOTOLAMP_DEPLOY_SHA="$PHOTOLAMP_DEPLOY_SHA" \
+COMPOSE_PROJECT_NAME="$project_name" \
+  bash infra/scripts/sync-offsite-backup.sh --verify-only "$latest_archive"
 disk_used_percent="$(df -P "$backup_dir" | awk 'NR==2 {gsub(/%/, "", $5); print $5}')"
 [[ "$disk_used_percent" =~ ^[0-9]+$ ]] || fail 'Cannot read backup storage utilization'
 ((disk_used_percent < 90)) || fail 'Backup storage utilization reached 90 percent'

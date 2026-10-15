@@ -13,6 +13,7 @@ dependencies = [
   "cryptography>=50,<51",
   "redis>=5.2,<8",
   "prometheus-client>=0.22,<1",
+  "boto3>=1.40,<2",
 ]
 
 [dependency-groups]

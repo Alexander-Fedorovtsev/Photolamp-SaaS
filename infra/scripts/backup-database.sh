@@ -70,10 +70,10 @@ archive="$backup_dir/$archive_name"
 temporary="$backup_dir/.${archive_name}.partial"
 checksum="$archive.sha256"
 checksum_temporary="$backup_dir/.${archive_name}.sha256.partial"
-completed=false
+archive_persisted=false
 cleanup() {
   rm -f -- "$temporary" "$checksum_temporary"
-  if [[ "$completed" != true ]]; then rm -f -- "$archive" "$checksum"; fi
+  if [[ "$archive_persisted" != true ]]; then rm -f -- "$archive" "$checksum"; fi
 }
 trap cleanup EXIT
 
@@ -98,6 +98,16 @@ PHOTOLAMP_COMPOSE_FILES="$compose_files" \
 PHOTOLAMP_MAINTENANCE_LOCK_HELD=true \
 COMPOSE_PROJECT_NAME="$project_name" \
   bash infra/scripts/verify-backup.sh "$archive"
+archive_persisted=true
+
+PHOTOLAMP_APP_DIR="$app_dir" \
+PHOTOLAMP_ENV_FILE="$env_file" \
+PHOTOLAMP_BACKUP_DIR="$backup_dir" \
+PHOTOLAMP_COMPOSE_FILES="$compose_files" \
+PHOTOLAMP_MAINTENANCE_LOCK_HELD=true \
+COMPOSE_PROJECT_NAME="$project_name" \
+PHOTOLAMP_DEPLOY_SHA="$PHOTOLAMP_DEPLOY_SHA" \
+  bash infra/scripts/sync-offsite-backup.sh "$archive"
 
 while IFS= read -r -d '' old_archive; do
   [[ "$old_archive" == "$archive" ]] && continue
@@ -115,6 +125,5 @@ if ((${#archives[@]} > retention_count)); then
   done
 fi
 
-completed=true
 trap - EXIT
-printf '[photolamp-backup] Encrypted backup and restore drill passed: %s\n' "$archive_name"
+printf '[photolamp-backup] Encrypted backup and configured restore drills passed: %s\n' "$archive_name"

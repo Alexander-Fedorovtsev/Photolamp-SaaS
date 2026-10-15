@@ -385,6 +385,7 @@ class StagingTopology(unittest.TestCase):
         self.assertIn('[[ "$metrics_status" == 404 ]]', monitor)
         self.assertIn("PHOTOLAMP_MAX_BACKUP_AGE_SECONDS:-93600", monitor)
         self.assertIn("sha256sum --check --status", monitor)
+        self.assertIn("sync-offsite-backup.sh --verify-only", monitor)
         self.assertLess(
             deploy.index("backup-database.sh"),
             deploy.index("monitor-staging.sh"),
@@ -413,6 +414,7 @@ class StagingTopology(unittest.TestCase):
             "db-bootstrap",
             "migrate",
             "backup-crypto",
+            "offsite-backup",
             "contact-maintenance",
         ]:
             changed = copy.deepcopy(self.model)
@@ -459,6 +461,25 @@ class StagingTopology(unittest.TestCase):
             "must-not-reach-api"
         )
         with self.assertRaisesRegex(ValueError, "isolated"):
+            self.validator.validate(changed)
+
+    def test_offsite_credentials_have_isolated_maintenance_egress(self):
+        offsite = self.model["services"]["offsite-backup"]
+        self.assertEqual(set(offsite["networks"]), {"backup-egress"})
+        self.assertEqual(offsite["environment"]["AWS_EC2_METADATA_DISABLED"], "true")
+        self.assertNotIn("BACKUP_ENCRYPTION_KEYS", offsite["environment"])
+        self.assertNotIn("DATABASE_URL", offsite["environment"])
+
+        changed = copy.deepcopy(self.model)
+        changed["services"]["offsite-backup"]["networks"] = {"internal": None}
+        with self.assertRaisesRegex(ValueError, "isolated egress"):
+            self.validator.validate(changed)
+
+        changed = copy.deepcopy(self.model)
+        changed["services"]["api"]["environment"][
+            "OFFSITE_BACKUP_SECRET_ACCESS_KEY"
+        ] = "must-not-reach-api"
+        with self.assertRaisesRegex(ValueError, "credentials must be isolated"):
             self.validator.validate(changed)
 
     def test_contact_keys_are_versioned_and_maintenance_isolated(self):
