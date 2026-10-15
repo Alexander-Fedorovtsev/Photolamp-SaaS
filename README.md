@@ -71,8 +71,10 @@ session без внешнего SMS-провайдера. Сотрудник в�
 сессии, может завершить одну или выйти на всех устройствах; список не хранит IP
 и полный User-Agent. Адаптивная `/admin` соблюдает роль текущего membership:
 owner/admin управляют каталогом, operator работает с заказами без идентификаторов
-физических приборов, courier не получает административные разделы до появления
-отдельного API назначенных заданий. В панели можно просматривать tenant-scoped
+физических приборов, а courier получает только явно назначенные доставки через
+отдельный ограниченный API. Оператор назначает активного курьера, который принимает
+задание, отмечает получение лампы и доставку; контакт открывается отдельной
+аудируемой командой только на время исполнения. В панели можно просматривать tenant-scoped
 очередь и карточки заказов, создавать подтверждённый заказ по телефону на
 фиксированный синтетический контакт, подтверждать/отменять допустимые заявки,
 проводить заказ через выдачу, возврат и осмотр, отдельно открывать зашифрованный
@@ -117,6 +119,7 @@ owner/admin управляют каталогом, operator работает с 
 - [Observability baseline и staging monitor](docs/architecture/adr-0021-observability-baseline.md)
 - [Telegram on-call alerts](docs/architecture/adr-0022-telegram-on-call-alerts.md)
 - [Immutable off-site backups](docs/architecture/adr-0023-immutable-offsite-backups.md)
+- [Назначенные курьерские доставки](docs/architecture/adr-0024-courier-delivery-workspace.md)
 - [Реализованный landing и витрина](docs/product/landing-foundation.md)
 - [Демо photolamp-test.anliwei.pro и настройка Continuous Deployment](docs/deployment.md)
 

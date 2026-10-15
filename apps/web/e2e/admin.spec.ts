@@ -85,6 +85,15 @@ const dashboardFixture = {
   pending_requests: [],
 };
 
+test.beforeEach(async ({ page }) => {
+  await page.route(/\/api\/admin\/courier\/dispatch\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: '{"couriers":[],"assignments":[]}',
+    });
+  });
+});
+
 test("dashboard opens the customer request queue with one action", async ({ page }) => {
   let requestFilterSeen = false;
   await page.route(/\/api\/admin\/dashboard\?.*$/, async (route) => {
@@ -308,8 +317,24 @@ test("staff can review sessions, revoke one device and sign out everywhere", asy
   await expect(page.getByRole("heading", { name: "Вход в рабочее пространство." })).toBeVisible();
 });
 
-test("courier sees only the role boundary and own sessions", async ({ page }) => {
+test("courier completes only the assigned delivery from the restricted workspace", async ({
+  page,
+}) => {
   const protectedRequests: string[] = [];
+  let taskState: "assigned" | "accepted" | "picked_up" | "delivered" = "assigned";
+  const courierTask = () => ({
+    task_id: "da000000-0000-0000-0000-000000000001",
+    order_id: phoneOrderFixture.order_id,
+    state: taskState,
+    snapshot: { ...phoneOrderFixture.snapshot, fulfillment: "delivery" as const },
+    planned_end_date: phoneOrderFixture.planned_end_date,
+    assigned_at: "2030-01-01T12:10:00+00:00",
+    accepted_at: taskState === "assigned" ? null : "2030-01-01T12:11:00+00:00",
+    picked_up_at:
+      taskState === "picked_up" || taskState === "delivered" ? "2030-01-01T12:20:00+00:00" : null,
+    delivered_at: taskState === "delivered" ? "2030-01-01T12:40:00+00:00" : null,
+    updated_at: "2030-01-01T12:40:00+00:00",
+  });
   page.on("request", (request) => {
     const path = new URL(request.url()).pathname;
     if (/^\/api\/admin\/(catalog|dashboard|orders|team)(?:\/|$)/.test(path)) {
@@ -333,19 +358,112 @@ test("courier sees only the role boundary and own sessions", async ({ page }) =>
   await page.route(/\/api\/admin\/sessions$/, async (route) => {
     await route.fulfill({ contentType: "application/json", body: "[]" });
   });
+  await page.route(/\/api\/admin\/courier\/tasks\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ items: [courierTask()] }),
+    });
+  });
+  await page.route(
+    /\/api\/admin\/courier\/tasks\/[^/]+\/(accept|pickup|deliver)\?.*$/,
+    async (route) => {
+      const action = new URL(route.request().url()).pathname.split("/").at(-1);
+      taskState =
+        action === "accept" ? "accepted" : action === "pickup" ? "picked_up" : "delivered";
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ task: courierTask(), replayed: false }),
+      });
+    },
+  );
+  await page.route(/\/api\/admin\/courier\/tasks\/[^/]+\/contact\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        contact: {
+          phone_e164: "+70000000000",
+          recipient_name: "Тестовый клиент",
+          delivery_address: "Тестовый адрес",
+        },
+        replayed: false,
+      }),
+    });
+  });
+  page.on("dialog", (dialog) => void dialog.accept());
 
   await page.goto("/admin");
 
   await expect(page.getByText("Роль: Курьер.")).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Рабочее место курьера готовится" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Мои задания" })).toBeVisible();
+  await expect(page.getByText("Синтетическая фотолампа", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Принять задание" }).click();
+  await page.getByRole("button", { name: "Показать контакт" }).click();
+  await expect(page.getByText("Тестовый адрес", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Лампа получена" }).click();
+  await page.getByRole("button", { name: "Доставлено клиенту" }).click();
+  await expect(page.getByText("Доставлено", { exact: true })).toBeVisible();
+  await expect(page.getByText("Тестовый адрес", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Активные сессии" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Операционная сводка" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Заказы", exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Экземпляры" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Команда и роли" })).toHaveCount(0);
   await expect.poll(() => protectedRequests).toEqual([]);
+});
+
+test("operator assigns a courier to a confirmed delivery", async ({ page }) => {
+  const courierUserId = "d5000000-0000-0000-0000-000000000003";
+  let assignment: Record<string, unknown> | null = null;
+  const deliveryOrder = {
+    ...phoneOrderFixture,
+    snapshot: { ...phoneOrderFixture.snapshot, fulfillment: "delivery" as const },
+  };
+  await page.route(/\/api\/admin\/orders\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ items: [deliveryOrder], total: 1, limit: 100, offset: 0 }),
+    });
+  });
+  await page.route(/\/api\/admin\/courier\/dispatch\?.*$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        couriers: [{ user_id: courierUserId, display_name: "Демо-курьер" }],
+        assignments: assignment ? [assignment] : [],
+      }),
+    });
+  });
+  await page.route(/\/api\/admin\/orders\/[^/]+\/courier\?.*$/, async (route) => {
+    expect(route.request().method()).toBe("PUT");
+    expect(route.request().postDataJSON()).toEqual({ courier_user_id: courierUserId });
+    assignment = {
+      task_id: "da000000-0000-0000-0000-000000000001",
+      order_id: phoneOrderFixture.order_id,
+      courier_user_id: courierUserId,
+      courier_display_name: "Демо-курьер",
+      state: "assigned",
+      assigned_at: "2030-01-01T12:10:00+00:00",
+      accepted_at: null,
+      picked_up_at: null,
+      delivered_at: null,
+      updated_at: "2030-01-01T12:10:00+00:00",
+    };
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ assignment, replayed: false }),
+    });
+  });
+
+  await page.goto("/admin");
+  await page.getByRole("button", { name: "Войти в demo-панель" }).click();
+  await page.getByText("Синтетическая фотолампа", { exact: true }).click();
+  await page
+    .getByLabel(`Курьер для заказа ${phoneOrderFixture.order_id.slice(0, 8)}`)
+    .selectOption(courierUserId);
+
+  await expect(page.getByText("Курьер назначен на доставку.")).toBeVisible();
+  await expect(page.getByText("Демо-курьер · Назначен", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Передать в доставку" })).toHaveCount(0);
 });
 
 test("authenticated staff without an active organization gets a clear access boundary", async ({
@@ -371,9 +489,7 @@ test("authenticated staff without an active organization gets a clear access bou
   await expect(page.getByLabel("Организация")).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Открыть витрину" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Активные сессии" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Рабочее место курьера готовится" })).toHaveCount(
-    0,
-  );
+  await expect(page.getByRole("heading", { name: "Мои задания" })).toHaveCount(0);
   await expect.poll(() => protectedRequests).toEqual([]);
 });
 
@@ -453,6 +569,9 @@ test("operator gets order tools without private inventory or team controls", asy
   });
   await page.route(/\/api\/admin\/sessions$/, async (route) => {
     await route.fulfill({ contentType: "application/json", body: "[]" });
+  });
+  await page.route(/\/api\/admin\/courier\/tasks\?.*$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: '{"items":[]}' });
   });
 
   await page.goto("/admin");
@@ -655,14 +774,15 @@ test("a server-side role downgrade removes stale catalog controls", async ({ pag
   await page.route(/\/api\/admin\/sessions$/, async (route) => {
     await route.fulfill({ contentType: "application/json", body: "[]" });
   });
+  await page.route(/\/api\/admin\/courier\/tasks\?.*$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: '{"items":[]}' });
+  });
 
   await page.goto("/admin");
   await page.getByRole("button", { name: "Снять с витрины" }).click();
 
   await expect(page.getByText("Роль: Курьер.")).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Рабочее место курьера готовится" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Мои задания" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Модели оборудования" })).toHaveCount(0);
 });
 
@@ -731,6 +851,9 @@ test("a role downgrade purges an already revealed order contact", async ({ page 
   });
   await page.route(/\/api\/admin\/sessions$/, async (route) => {
     await route.fulfill({ contentType: "application/json", body: "[]" });
+  });
+  await page.route(/\/api\/admin\/courier\/tasks\?.*$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: '{"items":[]}' });
   });
 
   await page.goto("/admin");

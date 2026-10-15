@@ -301,6 +301,68 @@ export const staffSessionRevokedSchema = z
   .object({ revoked: z.literal(true), revoked_current: z.boolean() })
   .strict();
 
+const courierTaskStateSchema = z.enum(["assigned", "accepted", "picked_up", "delivered"]);
+
+const courierAssignmentSchema = z
+  .object({
+    task_id: uuidSchema,
+    order_id: uuidSchema,
+    courier_user_id: uuidSchema,
+    courier_display_name: z.string().min(1).max(120),
+    state: courierTaskStateSchema,
+    assigned_at: isoDateTimeSchema,
+    accepted_at: isoDateTimeSchema.nullable(),
+    picked_up_at: isoDateTimeSchema.nullable(),
+    delivered_at: isoDateTimeSchema.nullable(),
+    updated_at: isoDateTimeSchema,
+  })
+  .strict();
+
+export const dispatchSnapshotSchema = z
+  .object({
+    couriers: z.array(
+      z.object({ user_id: uuidSchema, display_name: z.string().min(1).max(120) }).strict(),
+    ),
+    assignments: z.array(courierAssignmentSchema),
+  })
+  .strict();
+
+export const courierAssignmentResultSchema = z
+  .object({ assignment: courierAssignmentSchema.nullable(), replayed: z.boolean() })
+  .strict();
+
+const courierTaskSchema = z
+  .object({
+    task_id: uuidSchema,
+    order_id: uuidSchema,
+    state: courierTaskStateSchema,
+    snapshot: adminOrderSnapshotSchema,
+    planned_end_date: isoDateSchema,
+    assigned_at: isoDateTimeSchema,
+    accepted_at: isoDateTimeSchema.nullable(),
+    picked_up_at: isoDateTimeSchema.nullable(),
+    delivered_at: isoDateTimeSchema.nullable(),
+    updated_at: isoDateTimeSchema,
+  })
+  .strict();
+
+export const courierTaskPageSchema = z.object({ items: z.array(courierTaskSchema) }).strict();
+export const courierTaskResultSchema = z
+  .object({ task: courierTaskSchema, replayed: z.boolean() })
+  .strict();
+export const courierContactResultSchema = z
+  .object({
+    contact: z
+      .object({
+        phone_e164: z.string().regex(/^\+[1-9][0-9]{7,14}$/),
+        recipient_name: z.string().min(1).max(120),
+        delivery_address: z.string().min(1).max(500),
+      })
+      .strict(),
+    replayed: z.boolean(),
+  })
+  .strict();
+
 export type Membership = z.infer<typeof membershipSchema>;
 export type AdminCatalog = z.infer<typeof adminCatalogSchema>;
 export type AdminOrder = z.infer<typeof adminOrderSchema>;
@@ -314,3 +376,8 @@ export type TeamSnapshot = z.infer<typeof teamSnapshotSchema>;
 export type StaffInvitationSummary = z.infer<typeof staffInvitationSummarySchema>;
 export type StaffInvitationCreated = z.infer<typeof staffInvitationCreatedSchema>;
 export type StaffSessionSummary = z.infer<typeof staffSessionSummarySchema>;
+export type DispatchSnapshot = z.infer<typeof dispatchSnapshotSchema>;
+export type CourierAssignment = z.infer<typeof courierAssignmentSchema>;
+export type CourierTask = z.infer<typeof courierTaskSchema>;
+export type CourierTaskPage = z.infer<typeof courierTaskPageSchema>;
+export type CourierContact = z.infer<typeof courierContactResultSchema>["contact"];

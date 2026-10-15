@@ -7,11 +7,15 @@ import {
   adminOrderPageSchema,
   adminReturnDecisionSchema,
   adminOrderTransitionSchema,
+  courierAssignmentResultSchema,
+  dispatchSnapshotSchema,
   type AdminOrder,
   type AdminOrderContact,
   type AdminOrderPage,
   type AdminOrderState,
   type AdminCatalog,
+  type CourierAssignment,
+  type DispatchSnapshot,
 } from "@/lib/admin";
 
 export type OrderFilter = "all" | "overdue" | "requests" | AdminOrderState;
@@ -89,6 +93,31 @@ export function AdminOrders({
   const [loading, setLoading] = useState(true);
   const [busyOrderId, setBusyOrderId] = useState("");
   const [notice, setNotice] = useState("");
+  const [dispatch, setDispatch] = useState<DispatchSnapshot | null>(null);
+
+  const loadDispatch = useCallback(async () => {
+    try {
+      const response = await fetch(
+        `/api/admin/courier/dispatch?tenant_id=${encodeURIComponent(tenantId)}`,
+        { cache: "no-store" },
+      );
+      if (response.status === 401) {
+        onUnauthorized();
+        return;
+      }
+      const payload = await responsePayload(response);
+      if (accessWasRevoked(response, payload)) {
+        setDispatch(null);
+        onAccessChanged();
+        return;
+      }
+      if (!response.ok) throw new Error("Не удалось загрузить назначения курьеров");
+      setDispatch(dispatchSnapshotSchema.parse(payload));
+    } catch (error) {
+      setDispatch(null);
+      setNotice(error instanceof Error ? error.message : "Не удалось загрузить назначения");
+    }
+  }, [onAccessChanged, onUnauthorized, tenantId]);
 
   const loadOrders = useCallback(async () => {
     setLoading(true);
@@ -127,6 +156,52 @@ export function AdminOrders({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadOrders();
   }, [loadOrders]);
+
+  useEffect(() => {
+    // The tenant determines the privacy-minimized courier roster and assignments.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadDispatch();
+  }, [loadDispatch]);
+
+  async function updateCourier(orderId: string, courierUserId: string) {
+    setBusyOrderId(orderId);
+    setNotice("");
+    try {
+      const response = await fetch(
+        `/api/admin/orders/${encodeURIComponent(orderId)}/courier?tenant_id=${encodeURIComponent(tenantId)}`,
+        {
+          method: courierUserId ? "PUT" : "DELETE",
+          headers: {
+            "Idempotency-Key": `admin-courier-${crypto.randomUUID()}`,
+            ...(courierUserId ? { "Content-Type": "application/json" } : {}),
+          },
+          body: courierUserId ? JSON.stringify({ courier_user_id: courierUserId }) : undefined,
+        },
+      );
+      if (response.status === 401) {
+        onUnauthorized();
+        return;
+      }
+      const payload = await responsePayload(response);
+      if (accessWasRevoked(response, payload)) {
+        setDispatch(null);
+        onAccessChanged();
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(
+          (payload as { detail?: string }).detail ?? "Не удалось изменить назначение",
+        );
+      }
+      courierAssignmentResultSchema.parse(payload);
+      await loadDispatch();
+      setNotice(courierUserId ? "Курьер назначен на доставку." : "Назначение курьера снято.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Не удалось изменить назначение");
+    } finally {
+      setBusyOrderId("");
+    }
+  }
 
   async function transition(
     order: AdminOrder,
@@ -322,6 +397,11 @@ export function AdminOrders({
               tenantId={tenantId}
               timeZone={timeZone}
               busy={busyOrderId === order.order_id}
+              assignment={
+                dispatch?.assignments.find((item) => item.order_id === order.order_id) ?? null
+              }
+              couriers={dispatch?.couriers ?? []}
+              onCourierChange={updateCourier}
               onTransition={transition}
               onRequestDecision={decideRequest}
               onUnauthorized={onUnauthorized}
@@ -339,6 +419,9 @@ function OrderCard({
   tenantId,
   timeZone,
   busy,
+  assignment,
+  couriers,
+  onCourierChange,
   onTransition,
   onRequestDecision,
   onUnauthorized,
@@ -348,6 +431,9 @@ function OrderCard({
   tenantId: string;
   timeZone: string;
   busy: boolean;
+  assignment: CourierAssignment | null;
+  couriers: DispatchSnapshot["couriers"];
+  onCourierChange: (orderId: string, courierUserId: string) => Promise<void>;
   onTransition: (
     order: AdminOrder,
     action: "confirm" | "cancel" | "handover" | "return" | "inspection",
@@ -368,6 +454,12 @@ function OrderCard({
   const canConfirm = order.state === "held" && order.identity_verified;
   const canCancel = order.state === "held" || order.state === "confirmed";
   const period = `${formatDate(order.snapshot.start_date)} — ${formatDate(order.planned_end_date)}`;
+  const courierStateLabels = {
+    assigned: "Назначен",
+    accepted: "Задание принято",
+    picked_up: "Лампа у курьера",
+    delivered: "Доставлено",
+  } as const;
 
   async function revealContact() {
     setContactLoading(true);
@@ -466,6 +558,39 @@ function OrderCard({
         )}
         {order.state === "confirmed" && order.confirmed_at && (
           <p className="small">Подтверждён {formatDateTime(order.confirmed_at, timeZone)}.</p>
+        )}
+        {order.snapshot.fulfillment === "delivery" && order.state === "confirmed" && (
+          <div className="admin-request-panel courier-assignment-panel">
+            <div>
+              <strong>Курьерская доставка</strong>
+              <span className="small">
+                {assignment
+                  ? `${assignment.courier_display_name} · ${courierStateLabels[assignment.state]}`
+                  : "Курьер пока не назначен"}
+              </span>
+            </div>
+            {(!assignment || assignment.state === "assigned") && (
+              <label>
+                <span className="small">Исполнитель</span>
+                <select
+                  aria-label={`Курьер для заказа ${order.order_id.slice(0, 8)}`}
+                  value={assignment?.courier_user_id ?? ""}
+                  disabled={busy || couriers.length === 0}
+                  onChange={(event) => void onCourierChange(order.order_id, event.target.value)}
+                >
+                  <option value="">Не назначен</option>
+                  {couriers.map((courier) => (
+                    <option key={courier.user_id} value={courier.user_id}>
+                      {courier.display_name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {couriers.length === 0 && !assignment && (
+              <span className="small">Нет активных сотрудников с ролью курьера.</span>
+            )}
+          </div>
         )}
         {order.state === "in_progress" && order.handed_over_at && (
           <p className="small">Передан {formatDateTime(order.handed_over_at, timeZone)}.</p>
@@ -648,7 +773,7 @@ function OrderCard({
                 {busy ? "Сохраняем…" : "Подтвердить"}
               </button>
             )}
-            {order.state === "confirmed" && (
+            {order.state === "confirmed" && !assignment && (
               <button
                 className="button primary"
                 type="button"
@@ -661,6 +786,11 @@ function OrderCard({
                     ? "Передать в доставку"
                     : "Выдать клиенту"}
               </button>
+            )}
+            {order.state === "confirmed" && assignment && (
+              <span className="admin-security-note">
+                Передачу лампы отметит назначенный курьер после получения.
+              </span>
             )}
             {canCancel && (
               <button

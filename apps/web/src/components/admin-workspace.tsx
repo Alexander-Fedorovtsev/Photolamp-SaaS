@@ -7,6 +7,7 @@ import type { OrderFilter } from "@/components/admin-orders";
 import { AdminDashboard } from "@/components/admin-dashboard";
 import { AdminTeam } from "@/components/admin-team";
 import { AdminSessions } from "@/components/admin-sessions";
+import { CourierWorkspace } from "@/components/courier-workspace";
 import {
   adminCatalogSchema,
   membershipSchema,
@@ -55,7 +56,7 @@ const workspaceAccess: Record<
     orders: false,
     catalog: false,
     team: false,
-    description: "Административные разделы недоступны для роли курьера.",
+    description: "Доступны только назначенные доставки и собственные активные сессии.",
   },
 };
 
@@ -464,18 +465,11 @@ export function AdminWorkspace() {
             )}
           </>
         ) : currentTenant?.role === "courier" ? (
-          <section className="admin-section" aria-labelledby="courier-boundary-title">
-            <div className="admin-section-heading">
-              <div>
-                <p className="eyebrow">Граница роли</p>
-                <h2 id="courier-boundary-title">Рабочее место курьера готовится</h2>
-              </div>
-            </div>
-            <p>
-              Курьерские задания ещё не реализованы. Каталог, экземпляры, общая очередь заказов и
-              команда скрыты, пока для них нет отдельного ограниченного API.
-            </p>
-          </section>
+          <CourierWorkspace
+            tenantId={tenantId}
+            onUnauthorized={clearSession}
+            onAccessChanged={refreshAccess}
+          />
         ) : (
           <section className="admin-section" aria-labelledby="membership-boundary-title">
             <div className="admin-section-heading">
