@@ -46,7 +46,7 @@ def token_digest(credentials: HTTPAuthorizationCredentials | None) -> bytes:
         raise HTTPException(
             status_code=401,
             detail="Valid session required",
-            headers={"WWW-Authenticate": "Bearer"},
+            headers={"WWW-Authenticate": "Bearer", "Cache-Control": "no-store"},
         )
     return hashlib.sha256(credentials.credentials.encode()).digest()
 
@@ -79,7 +79,11 @@ async def get_tenant_context(database: Database, digest: bytes, tenant_id: UUID)
             ).one()
             return TenantContext(**dict(row._mapping), role=transaction.role)
     except TenantAccessDenied:
-        raise HTTPException(status_code=404, detail="Tenant not found") from None
+        raise HTTPException(
+            status_code=404,
+            detail="Tenant not found",
+            headers={"Cache-Control": "no-store"},
+        ) from None
 
 
 async def authorized_tenant_transaction(
@@ -91,4 +95,8 @@ async def authorized_tenant_transaction(
         async with db.tenant_transaction(digest, tenant_id) as transaction:
             yield transaction
     except TenantAccessDenied:
-        raise HTTPException(status_code=404, detail="Tenant not found") from None
+        raise HTTPException(
+            status_code=404,
+            detail="Tenant not found",
+            headers={"Cache-Control": "no-store"},
+        ) from None

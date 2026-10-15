@@ -62,11 +62,17 @@ async function responsePayload(response: Response) {
   return (await response.json().catch(() => ({}))) as unknown;
 }
 
+function accessWasRevoked(response: Response, payload: unknown) {
+  const detail = (payload as { detail?: unknown }).detail;
+  return response.status === 403 || (response.status === 404 && detail === "Tenant not found");
+}
+
 export function AdminOrders({
   tenantId,
   timeZone,
   catalog,
   onUnauthorized,
+  onAccessChanged,
   initialFilter = "all",
   onChanged,
 }: {
@@ -74,6 +80,7 @@ export function AdminOrders({
   timeZone: string;
   catalog: AdminCatalog;
   onUnauthorized: () => void;
+  onAccessChanged: () => void;
   initialFilter?: OrderFilter;
   onChanged?: () => void;
 }) {
@@ -97,6 +104,11 @@ export function AdminOrders({
         return;
       }
       const payload = await responsePayload(response);
+      if (accessWasRevoked(response, payload)) {
+        setPage(null);
+        onAccessChanged();
+        return;
+      }
       if (!response.ok) {
         const detail = (payload as { detail?: string }).detail;
         throw new Error(detail ?? "Не удалось загрузить заказы");
@@ -108,7 +120,7 @@ export function AdminOrders({
     } finally {
       setLoading(false);
     }
-  }, [filter, onUnauthorized, tenantId]);
+  }, [filter, onAccessChanged, onUnauthorized, tenantId]);
 
   useEffect(() => {
     // Tenant/filter changes are the external inputs for the protected queue fetch.
@@ -150,6 +162,11 @@ export function AdminOrders({
         return;
       }
       const payload = await responsePayload(response);
+      if (accessWasRevoked(response, payload)) {
+        setPage(null);
+        onAccessChanged();
+        return;
+      }
       if (!response.ok) {
         const detail = (payload as { detail?: string }).detail;
         throw new Error(detail ?? "Не удалось изменить заказ");
@@ -209,6 +226,11 @@ export function AdminOrders({
         return;
       }
       const payload = await responsePayload(response);
+      if (accessWasRevoked(response, payload)) {
+        setPage(null);
+        onAccessChanged();
+        return;
+      }
       if (!response.ok) {
         const detail = (payload as { detail?: string }).detail;
         throw new Error(detail ?? "Не удалось обработать запрос");
@@ -276,6 +298,7 @@ export function AdminOrders({
           setNotice("Синтетический заказ по телефону создан и подтверждён.");
         }}
         onUnauthorized={onUnauthorized}
+        onAccessChanged={onAccessChanged}
       />
 
       {notice && (
@@ -302,6 +325,7 @@ export function AdminOrders({
               onTransition={transition}
               onRequestDecision={decideRequest}
               onUnauthorized={onUnauthorized}
+              onAccessChanged={onAccessChanged}
             />
           ))}
         </div>
@@ -318,6 +342,7 @@ function OrderCard({
   onTransition,
   onRequestDecision,
   onUnauthorized,
+  onAccessChanged,
 }: {
   order: AdminOrder;
   tenantId: string;
@@ -335,6 +360,7 @@ function OrderCard({
     decision: "approve" | "acknowledge" | "reject",
   ) => Promise<void>;
   onUnauthorized: () => void;
+  onAccessChanged: () => void;
 }) {
   const [contact, setContact] = useState<AdminOrderContact | null>(null);
   const [contactError, setContactError] = useState("");
@@ -359,6 +385,12 @@ function OrderCard({
         return;
       }
       const payload = await responsePayload(response);
+      if (accessWasRevoked(response, payload)) {
+        setContact(null);
+        setContactError("");
+        onAccessChanged();
+        return;
+      }
       if (!response.ok) {
         const detail = (payload as { detail?: string }).detail;
         throw new Error(detail ?? "Контакт недоступен");
@@ -701,12 +733,14 @@ function PhoneOrderForm({
   catalog,
   onCreated,
   onUnauthorized,
+  onAccessChanged,
 }: {
   tenantId: string;
   timeZone: string;
   catalog: AdminCatalog;
   onCreated: () => Promise<void>;
   onUnauthorized: () => void;
+  onAccessChanged: () => void;
 }) {
   const [fulfillment, setFulfillment] = useState<"pickup" | "delivery">("pickup");
   const [creating, setCreating] = useState(false);
@@ -766,6 +800,10 @@ function PhoneOrderForm({
         return;
       }
       const payload = await responsePayload(response);
+      if (accessWasRevoked(response, payload)) {
+        onAccessChanged();
+        return;
+      }
       if (!response.ok) {
         const detail = (payload as { detail?: string | { msg?: string }[] }).detail;
         const message = Array.isArray(detail) ? detail[0]?.msg : detail;
