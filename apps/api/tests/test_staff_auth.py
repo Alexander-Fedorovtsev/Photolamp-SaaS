@@ -1,3 +1,4 @@
+import asyncio
 import os
 from collections.abc import Sequence
 from uuid import UUID, uuid4
@@ -76,14 +77,38 @@ async def test_staff_invitation_redemption_login_revocation_and_expiry() -> None
                 assert listed.json()[0]["state"] == "pending"
                 assert "invitation_token" not in listed.text
 
-                redeemed = await client.post(
-                    "/api/v1/auth/staff/invitations/redeem",
-                    json={
-                        "invitation_token": body["invitation_token"],
-                        "login_name": login_name,
-                        "password": password,
-                    },
+                preview = await client.post(
+                    "/api/v1/auth/staff/invitations/preview",
+                    json={"invitation_token": body["invitation_token"]},
                 )
+                assert preview.status_code == 200
+                assert preview.headers["cache-control"] == "no-store"
+                assert preview.json()["organization_name"] == "Солнечный дом · демо"
+                assert preview.json()["display_label"] == "Новый оператор"
+                assert preview.json()["role"] == "operator"
+                assert "token" not in preview.text
+
+                simultaneous = await asyncio.gather(
+                    *[
+                        client.post(
+                            "/api/v1/auth/staff/invitations/redeem",
+                            json={
+                                "invitation_token": body["invitation_token"],
+                                "login_name": login_name,
+                                "password": password,
+                            },
+                        )
+                        for _ in range(2)
+                    ]
+                )
+                assert sorted(result.status_code for result in simultaneous) == [200, 409]
+                redeemed = next(result for result in simultaneous if result.status_code == 200)
+                used_preview = await client.post(
+                    "/api/v1/auth/staff/invitations/preview",
+                    json={"invitation_token": body["invitation_token"]},
+                )
+                assert used_preview.status_code == 409
+                assert "Новый оператор" not in used_preview.text
                 assert redeemed.status_code == 200
                 assert redeemed.json()["demo_only"] is False
                 staff_headers = {"Authorization": f"Bearer {redeemed.json()['access_token']}"}
@@ -184,6 +209,12 @@ async def test_staff_invitation_redemption_login_revocation_and_expiry() -> None
                 )
                 assert revoked_response.status_code == 200
                 assert revoked_response.json()["revoked"] is True
+                unavailable_preview = await client.post(
+                    "/api/v1/auth/staff/invitations/preview",
+                    json={"invitation_token": revoked_body["invitation_token"]},
+                )
+                assert unavailable_preview.status_code == 409
+                assert revoked_body["invitation_token"] not in unavailable_preview.text
                 rejected_revoked = await client.post(
                     "/api/v1/auth/staff/invitations/redeem",
                     json={
@@ -212,6 +243,12 @@ async def test_staff_invitation_redemption_login_revocation_and_expiry() -> None
                         ),
                         {"invitation_id": UUID(expired_body["invitation_id"])},
                     )
+                unavailable_preview = await client.post(
+                    "/api/v1/auth/staff/invitations/preview",
+                    json={"invitation_token": expired_body["invitation_token"]},
+                )
+                assert unavailable_preview.status_code == 409
+                assert expired_body["invitation_token"] not in unavailable_preview.text
                 rejected_expired = await client.post(
                     "/api/v1/auth/staff/invitations/redeem",
                     json={

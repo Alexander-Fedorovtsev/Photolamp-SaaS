@@ -93,7 +93,9 @@ async def test_quote_is_server_calculated_and_blocks_reduce_availability() -> No
 
                 unavailable = await client.post("/api/v1/r/demo-ufa/checkout/quote", json=request)
                 assert unavailable.status_code == 409
-                assert unavailable.json() == {"detail": "No units available for selected dates"}
+                assert unavailable.json() == {
+                    "detail": {"code": "NO_UNITS_AVAILABLE", "field": "dates"}
+                }
                 availability = await client.get(
                     "/api/v1/r/demo-ufa/availability",
                     params={key: value for key, value in request.items() if key != "fulfillment"},
@@ -133,6 +135,18 @@ async def test_quote_validates_dates_tariff_and_tenant_scope() -> None:
             assert (
                 await client.post("/api/v1/r/demo-ufa/checkout/quote", json=base)
             ).status_code == 422
+            for request, code in (
+                (base, "MINIMUM_DAYS"),
+                ({**base, "end_date": (start + timedelta(days=30)).isoformat()}, "MAXIMUM_DAYS"),
+                ({**base, "end_date": (start - timedelta(days=1)).isoformat()}, "END_BEFORE_START"),
+                (
+                    {**base, "start_date": (date.today() - timedelta(days=2)).isoformat()},
+                    "DATE_IN_PAST",
+                ),
+            ):
+                rejected = await client.post("/api/v1/r/demo-ufa/checkout/quote", json=request)
+                assert rejected.status_code == 422
+                assert rejected.json()["detail"]["code"] == code
             reversed_dates = {
                 **base,
                 "end_date": (start - timedelta(days=1)).isoformat(),

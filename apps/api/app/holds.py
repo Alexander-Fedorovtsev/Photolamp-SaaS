@@ -153,7 +153,9 @@ async def _create_hold_in_transaction(
         },
     )
     if asset_id is None:
-        raise HTTPException(status_code=409, detail="No units available for selected dates")
+        raise HTTPException(
+            status_code=409, detail={"code": "NO_UNITS_AVAILABLE", "field": "dates"}
+        )
     hold_id = uuid4()
     token, token_hash = issue_capability()
     inserted = (
@@ -217,7 +219,7 @@ async def create_hold(
         raise HTTPException(status_code=404, detail="Storefront not found") from None
     except IntegrityError:
         raise HTTPException(
-            status_code=409, detail="No units available for selected dates"
+            status_code=409, detail={"code": "NO_UNITS_AVAILABLE", "field": "dates"}
         ) from None
 
 

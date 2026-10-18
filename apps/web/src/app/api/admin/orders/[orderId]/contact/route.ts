@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { proxyStaffRequest } from "@/lib/admin-proxy";
 
-const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function POST(
   request: NextRequest,
@@ -18,7 +18,10 @@ export async function POST(
     idempotencyKey.length < 16 ||
     idempotencyKey.length > 128
   ) {
-    return NextResponse.json({ detail: "Invalid contact access request" }, { status: 400 });
+    return NextResponse.json(
+      { detail: { code: "INVALID_CONTACT_REQUEST" } },
+      { status: 400, headers: { "Cache-Control": "no-store" } },
+    );
   }
   return proxyStaffRequest(`/api/v1/t/${tenantId}/orders/${orderId}/contact-access`, {
     method: "POST",

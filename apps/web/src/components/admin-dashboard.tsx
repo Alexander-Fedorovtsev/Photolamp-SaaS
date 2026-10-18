@@ -110,8 +110,8 @@ export function AdminDashboard({
 
   const metrics: Array<{ label: string; value: number; filter: OrderFilter; urgent?: boolean }> = [
     { label: "Ждут подтверждения", value: dashboard.counts.awaiting_confirmation, filter: "held" },
-    { label: "К выдаче", value: dashboard.counts.handovers_due, filter: "confirmed" },
-    { label: "Вернут сегодня", value: dashboard.counts.returns_today, filter: "in_progress" },
+    { label: "К выдаче", value: dashboard.counts.handovers_due, filter: "handovers" },
+    { label: "Вернут сегодня", value: dashboard.counts.returns_today, filter: "returns_today" },
     { label: "Просрочены", value: dashboard.counts.overdue, filter: "overdue", urgent: true },
     { label: "Запросы клиентов", value: dashboard.counts.pending_requests, filter: "requests" },
     { label: "На осмотре", value: dashboard.counts.inspection, filter: "returned" },

@@ -4,10 +4,12 @@ export function BrandHeader({
   name = "Photolamp",
   city,
   landing = false,
+  tenantSlug,
 }: {
   name?: string;
   city?: string;
   landing?: boolean;
+  tenantSlug?: string;
 }) {
   return (
     <header className="site-header">
@@ -22,7 +24,9 @@ export function BrandHeader({
         <nav aria-label="Навигация по странице" className="header-nav">
           <a href="#process">Как это работает</a>
           <a href="#questions">Вопросы</a>
-          <Link href="/admin">Для арендодателя</Link>
+          <Link href={tenantSlug ? `/admin?tenant=${encodeURIComponent(tenantSlug)}` : "/admin"}>
+            Для арендодателя
+          </Link>
           <a href="#rental" className="button primary">
             Условия аренды
           </a>

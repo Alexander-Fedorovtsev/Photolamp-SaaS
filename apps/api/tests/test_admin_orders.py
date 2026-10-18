@@ -393,6 +393,46 @@ async def test_operations_dashboard_is_private_tenant_scoped_and_role_guarded() 
                 ):
                     assert forbidden not in response.text
 
+                # A future confirmed order must not enter today's handover drill-down.
+                async with owner.begin() as connection:
+                    await connection.execute(
+                        text(
+                            "UPDATE orders SET state = 'confirmed', confirmed_at = now(), "
+                            "confirmed_by_staff_user_id = 'd5000000-0000-0000-0000-000000000001' "
+                            "WHERE id = :id"
+                        ),
+                        {"id": UUID(str(order["order_id"]))},
+                    )
+                for due, expected in (("handovers", 0), ("returns_today", 0)):
+                    queue = await client.get(
+                        f"/api/v1/t/{TENANT_UFA}/orders?due={due}",
+                        headers=headers,
+                    )
+                    assert queue.status_code == 200
+                    assert queue.json()["total"] == expected
+                async with owner.begin() as connection:
+                    await connection.execute(
+                        text(
+                            "UPDATE orders SET start_date = (now() AT TIME ZONE "
+                            "'Asia/Yekaterinburg')::date WHERE id = :id"
+                        ),
+                        {"id": UUID(str(order["order_id"]))},
+                    )
+                due_dashboard = await client.get(
+                    f"/api/v1/t/{TENANT_UFA}/dashboard",
+                    headers=headers,
+                )
+                due_queue = await client.get(
+                    f"/api/v1/t/{TENANT_UFA}/orders?due=handovers",
+                    headers=headers,
+                )
+                assert (
+                    due_queue.json()["total"]
+                    == due_dashboard.json()["counts"]["handovers_due"]
+                    == 1
+                )
+                assert due_queue.json()["items"][0]["order_id"] == order["order_id"]
+
                 other_tenant = await client.get(
                     f"/api/v1/t/{TENANT_KAZAN}/dashboard", headers=headers
                 )

@@ -10,10 +10,13 @@ from app.rate_limit import enforce_rate_limit
 from app.staff_auth import (
     InvalidStaffCredentials,
     InvalidStaffInvitation,
+    StaffInvitationPreview,
+    StaffInvitationPreviewRequest,
     StaffInvitationRedemption,
     StaffLoginCommand,
     StaffSession,
     login_staff,
+    preview_invitation,
     redeem_invitation,
 )
 from app.staff_sessions import coarse_client_label
@@ -92,4 +95,31 @@ async def staff_invitation_redemption(
     except InvalidStaffInvitation:
         raise HTTPException(
             status_code=409, detail="Invitation is invalid or unavailable"
+        ) from None
+
+
+@router.post("/invitations/preview", response_model=StaffInvitationPreview)
+async def staff_invitation_preview(
+    command: StaffInvitationPreviewRequest,
+    request: Request,
+    response: Response,
+    db: Annotated[Database, Depends(database)],
+    config: Annotated[Settings, Depends(settings)],
+) -> StaffInvitationPreview:
+    response.headers["Cache-Control"] = "no-store"
+    await enforce_rate_limit(
+        request.app.state.redis,
+        f"staff-invitation-preview:{request.client.host if request.client else 'unknown'}",
+        limit=config.staff_auth_rate_limit,
+        window_seconds=60,
+        unavailable_detail="Authentication protection is unavailable",
+        exceeded_detail="Too many authentication attempts",
+    )
+    try:
+        return await preview_invitation(db, command.invitation_token)
+    except InvalidStaffInvitation:
+        raise HTTPException(
+            status_code=409,
+            detail="Invitation is invalid or unavailable",
+            headers={"Cache-Control": "no-store"},
         ) from None

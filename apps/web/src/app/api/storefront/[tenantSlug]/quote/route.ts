@@ -23,6 +23,7 @@ export async function POST(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(parsed.data),
       cache: "no-store",
+      signal: AbortSignal.timeout(8000),
     },
   );
   return new NextResponse(await upstream.text(), {

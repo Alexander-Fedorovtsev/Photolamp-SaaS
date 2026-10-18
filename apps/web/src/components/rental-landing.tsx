@@ -50,7 +50,7 @@ const questions = [
   ],
   [
     "Сколько стоит аренда?",
-    "Стоимость зависит от тарифа организации, срока и способа получения. Тарифы пока не настроены — в демо нет вымышленных цен или окончательного расчёта.",
+    "Стоимость зависит от тарифа организации, срока и способа получения. На демо-витринах организаций есть синтетические тарифы и серверный расчёт. Выберите организацию, модель и даты. Расчёт не резервирует прибор.",
   ],
   [
     "Что входит в комплект?",
@@ -91,11 +91,11 @@ export function RentalLanding({
     : questions;
   return (
     <div data-accent={accent} className="landing">
-      <BrandHeader name={name} city={city} landing />
+      <BrandHeader name={name} city={city} tenantSlug={catalog?.slug} landing />
       <div className="demo-notice" role="note">
         {catalog
           ? "Демонстрационная витрина. Можно проверить даты и серверный расчёт по синтетическим тарифам; бронь, контакты и оплата отключены."
-          : "Демонстрационная витрина. Аренда пока недоступна; тарифы и контакты не настроены."}
+          : "Демонстрация сервиса. Выберите организацию для расчёта по синтетическим тарифам. Оформление и оплата выключены."}
       </div>
       <MotionControls>
         <main id="main-content">
@@ -287,6 +287,9 @@ export function RentalLanding({
         </span>
         <span>Демонстрация · без персональных данных</span>
         <a href="#questions">Вопросы об аренде</a>
+        <Link href={catalog ? `/admin?tenant=${encodeURIComponent(catalog.slug)}` : "/admin"}>
+          Для арендодателя
+        </Link>
       </footer>
       <nav className="mobile-cta" aria-label="Быстрые действия">
         <a className="button primary" href="#rental">

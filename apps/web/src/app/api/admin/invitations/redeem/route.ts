@@ -34,6 +34,7 @@ export async function POST(request: NextRequest) {
       password: body.password,
     }),
     cache: "no-store",
+    signal: AbortSignal.timeout(8000),
   });
   const payload = (await response.json().catch(() => ({}))) as {
     access_token?: string;

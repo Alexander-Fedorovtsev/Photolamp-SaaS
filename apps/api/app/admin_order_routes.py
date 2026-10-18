@@ -1,6 +1,6 @@
 """HTTP boundary for tenant staff order operations."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
@@ -67,6 +67,7 @@ async def staff_orders(
     state: Annotated[OrderState | None, Query()] = None,
     overdue: Annotated[bool, Query()] = False,
     requests: Annotated[bool, Query()] = False,
+    due: Annotated[Literal["handovers", "returns_today"] | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 25,
     offset: Annotated[int, Query(ge=0, le=10_000)] = 0,
 ) -> StaffOrderPage:
@@ -77,6 +78,7 @@ async def staff_orders(
             state=state,
             overdue=overdue,
             requests=requests,
+            due=due,
             limit=limit,
             offset=offset,
         )

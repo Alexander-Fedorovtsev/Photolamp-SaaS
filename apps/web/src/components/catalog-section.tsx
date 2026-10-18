@@ -26,7 +26,7 @@ export function CatalogSection({ catalog }: { catalog: TenantCatalog }) {
     <section id="catalog" className="section container" aria-labelledby="catalog-title" data-reveal>
       <div className="catalog-heading">
         <div>
-          <p className="eyebrow">Каталог организации · данные из PostgreSQL</p>
+          <p className="eyebrow">Каталог организации</p>
           <h2 id="catalog-title">Выберите подходящий формат лампы.</h2>
         </div>
         <p className="catalog-disclaimer">{catalog.public_note}</p>

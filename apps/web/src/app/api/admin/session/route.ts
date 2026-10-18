@@ -19,6 +19,7 @@ export async function POST(request: NextRequest) {
     method: "POST",
     headers: forwardedHeaders,
     cache: "no-store",
+    signal: AbortSignal.timeout(8000),
   });
   const payload = (await response.json()) as {
     access_token?: string;
