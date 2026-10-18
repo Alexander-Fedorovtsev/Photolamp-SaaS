@@ -52,7 +52,7 @@ test("FAQ works without JavaScript and mobile actions reach their sections", asy
   if (page.viewportSize()!.width < 700) {
     await mobileNav.getByRole("link", { name: "Условия аренды" }).click();
     await expect(page).toHaveURL(/#rental$/);
-    await expect(page.getByRole("heading", { name: /Проверьте даты/ })).toBeInViewport();
+    await expect(page.getByRole("heading", { name: /Выберите организацию/ })).toBeInViewport();
   }
   const context = await browser.newContext({ javaScriptEnabled: false });
   const staticPage = await context.newPage();

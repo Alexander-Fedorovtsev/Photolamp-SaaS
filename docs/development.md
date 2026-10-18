@@ -257,3 +257,20 @@ Encrypted database backups and restore drills: `architecture/adr-0019-encrypted-
 Observability and staging monitor: `architecture/adr-0021-observability-baseline.md`.
 Реализованный landing: `product/landing-foundation.md`.
 Публикация staging и GitHub CD: `deployment.md`.
+
+### Repeat browser QA
+
+The regression report and screenshots are in
+[`qa/browser-regression-2026-10.md`](qa/browser-regression-2026-10.md); the reviewed
+role contract and demo replacement-access procedure are in
+[`security/access-control-matrix.md`](security/access-control-matrix.md).
+
+Run backend integration tests in a fresh disposable database, separate from the
+browser stack (for example `photolamp_backend_tests`), then apply migrations with
+that database's `DATABASE_URL` / `DATABASE_OWNER_URL`. Existing integration fixture
+cleanup assumes it owns the entire database and is not suitable for a populated
+preview. The real-contact browser regression deliberately permits mutations only
+on localhost/127.0.0.1, uses synthetic data and cancels its own reservation. Never
+point these fixtures at staging or production. Other UI branches use explicit
+browser API fixtures. `PHOTOLAMP_SCREENSHOT_DIR` can choose an output directory;
+otherwise screenshots are saved under ignored `test-results/`.

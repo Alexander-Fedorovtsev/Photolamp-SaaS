@@ -1,6 +1,9 @@
 "use client";
 
-import { FormEvent, useId, useState } from "react";
+import Link from "next/link";
+import { validateRentalDates } from "@/lib/rental-dates";
+import { displayError, uiError } from "@/lib/ui-error";
+import { FormEvent, useId, useRef, useState } from "react";
 import { quoteSchema, type Quote } from "@/lib/quote";
 import type { CatalogItem, TenantCatalog } from "@/lib/tenant";
 
@@ -19,24 +22,46 @@ type Props = {
 
 export function RentalPlanner({ city, tenantSlug, branches = [], items = [] }: Props) {
   const id = useId();
+  const revision = useRef(0);
   const [method, setMethod] = useState<"delivery" | "pickup">("delivery");
   const [modelId, setModelId] = useState(items[0]?.id ?? "");
   const [branchId, setBranchId] = useState(branches[0]?.id ?? "");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [quote, setQuote] = useState<Quote | null>(null);
+  const [errorField, setErrorField] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const canCheck = Boolean(tenantSlug && modelId && branchId && startDate && endDate);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canCheck || !tenantSlug) return;
+    if (!canCheck || !tenantSlug || loading) return;
+    const attempt = ++revision.current;
+    const model = items.find((item) => item.id === modelId);
+    const branch = branches.find((item) => item.id === branchId);
+    const validation =
+      model && branch
+        ? validateRentalDates(
+            startDate,
+            endDate,
+            model.minimum_days,
+            model.maximum_days,
+            branch.timezone,
+          )
+        : null;
+    setQuote(null);
+    if (validation) {
+      setErrorField(validation.field);
+      setError(uiError({ detail: validation }));
+      return;
+    }
     setLoading(true);
     setError(null);
     setQuote(null);
     try {
       const response = await fetch(`/api/storefront/${encodeURIComponent(tenantSlug)}/quote`, {
+        signal: AbortSignal.timeout(10000),
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -48,23 +73,61 @@ export function RentalPlanner({ city, tenantSlug, branches = [], items = [] }: P
         }),
       });
       const payload: unknown = await response.json();
+      if (attempt !== revision.current) return;
       if (!response.ok) {
-        if (response.status === 409) throw new Error("На выбранные даты свободных ламп нет.");
-        if (response.status === 422) throw new Error("Проверьте даты и условия выбранного тарифа.");
-        throw new Error("Не удалось проверить даты.");
+        setErrorField((payload as { detail?: { field?: string } }).detail?.field ?? "dates");
+        throw new Error(
+          uiError(
+            payload,
+            "Не удалось проверить даты. Проверьте выбранную модель и филиал или повторите попытку.",
+          ),
+        );
       }
-      setQuote(quoteSchema.parse(payload));
+      if (attempt === revision.current) setQuote(quoteSchema.parse(payload));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не удалось проверить даты.");
+      if (attempt === revision.current)
+        setError(
+          displayError(
+            reason,
+            "Не удалось проверить даты. Проверьте соединение и повторите попытку.",
+          ),
+        );
     } finally {
       setLoading(false);
     }
   }
 
   function resetQuote() {
+    revision.current += 1;
     setQuote(null);
     setError(null);
+    setErrorField("");
   }
+
+  if (!tenantSlug)
+    return (
+      <div className="planner">
+        <div>
+          <p className="eyebrow">Расчёт аренды · demo</p>
+          <h2 id="rental-title">Выберите организацию</h2>
+          <p>
+            Откройте витрину своего города, затем выберите модель, филиал и даты. У каждой
+            организации свои синтетические тарифы.
+          </p>
+        </div>
+        <div className="planner-card demo-links">
+          <Link className="button primary" href="/r/demo-ufa#rental">
+            Уфа · Солнечный дом
+          </Link>
+          <Link className="button secondary" href="/r/demo-kazan#rental">
+            Казань · Бережный свет
+          </Link>
+          <p className="small">
+            Расчёт на витрине не резервирует прибор. Оформление и платежи пока выключены.
+          </p>
+        </div>
+      </div>
+    );
 
   return (
     <div className="planner">
@@ -82,6 +145,12 @@ export function RentalPlanner({ city, tenantSlug, branches = [], items = [] }: P
         </p>
       </div>
       <form className="planner-card" onSubmit={submit}>
+        {(!items.length || !branches.length) && (
+          <p role="status">
+            Для расчёта нужны опубликованная модель с активным тарифом и работающий филиал.
+            Обратитесь к организации позднее.
+          </p>
+        )}
         <p className="planner-city">{city} · демонстрационная витрина</p>
         <div className="planner-fields">
           {items.length > 0 && (
@@ -127,6 +196,8 @@ export function RentalPlanner({ city, tenantSlug, branches = [], items = [] }: P
             <input
               id={`${id}-start`}
               type="date"
+              aria-invalid={errorField === "start_date"}
+              aria-describedby={errorField === "start_date" ? `${id}-date-error` : undefined}
               value={startDate}
               onChange={(event) => {
                 setStartDate(event.target.value);
@@ -140,7 +211,8 @@ export function RentalPlanner({ city, tenantSlug, branches = [], items = [] }: P
             <input
               id={`${id}-end`}
               type="date"
-              min={startDate || undefined}
+              aria-invalid={errorField === "end_date"}
+              aria-describedby={errorField === "end_date" ? `${id}-date-error` : undefined}
               value={endDate}
               onChange={(event) => {
                 setEndDate(event.target.value);
@@ -163,6 +235,11 @@ export function RentalPlanner({ city, tenantSlug, branches = [], items = [] }: P
               <option value="pickup">Самовывоз</option>
             </select>
           </label>
+          {error && (
+            <p className="planner-error" id={`${id}-date-error`} role="alert">
+              {error}
+            </p>
+          )}
         </div>
         <button
           className="button secondary planner-check"
@@ -173,7 +250,7 @@ export function RentalPlanner({ city, tenantSlug, branches = [], items = [] }: P
         </button>
         <div className="planner-result" role="status" aria-live="polite" aria-atomic="true">
           {error ? (
-            <strong className="planner-error">{error}</strong>
+            <span>Измените условия выше и повторите проверку.</span>
           ) : quote ? (
             <>
               <span>
@@ -199,7 +276,7 @@ export function RentalPlanner({ city, tenantSlug, branches = [], items = [] }: P
         </div>
         <p className="small">
           Заявки и персональные данные пока не принимаются. Следующий этап добавит безопасное
-          временное резервирование.
+          публичное оформление после запуска сервиса.
         </p>
       </form>
     </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import { displayError, uiError } from "@/lib/ui-error";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   adminOrderContactAccessSchema,
@@ -18,7 +19,8 @@ import {
   type DispatchSnapshot,
 } from "@/lib/admin";
 
-export type OrderFilter = "all" | "overdue" | "requests" | AdminOrderState;
+export type OrderFilter =
+  "all" | "overdue" | "requests" | "handovers" | "returns_today" | AdminOrderState;
 
 const stateLabels: Record<AdminOrderState, string> = {
   held: "Ожидает подтверждения",
@@ -115,7 +117,7 @@ export function AdminOrders({
       setDispatch(dispatchSnapshotSchema.parse(payload));
     } catch (error) {
       setDispatch(null);
-      setNotice(error instanceof Error ? error.message : "Не удалось загрузить назначения");
+      setNotice(displayError(error, "Не удалось загрузить назначения"));
     }
   }, [onAccessChanged, onUnauthorized, tenantId]);
 
@@ -125,6 +127,7 @@ export function AdminOrders({
     const query = new URLSearchParams({ tenant_id: tenantId });
     if (filter === "overdue") query.set("overdue", "true");
     else if (filter === "requests") query.set("requests", "true");
+    else if (filter === "handovers" || filter === "returns_today") query.set("due", filter);
     else if (filter !== "all") query.set("state", filter);
     try {
       const response = await fetch(`/api/admin/orders?${query}`, { cache: "no-store" });
@@ -145,7 +148,7 @@ export function AdminOrders({
       setPage(adminOrderPageSchema.parse(payload));
     } catch (error) {
       setPage(null);
-      setNotice(error instanceof Error ? error.message : "Не удалось загрузить заказы");
+      setNotice(displayError(error, "Не удалось загрузить заказы"));
     } finally {
       setLoading(false);
     }
@@ -197,7 +200,7 @@ export function AdminOrders({
       await loadDispatch();
       setNotice(courierUserId ? "Курьер назначен на доставку." : "Назначение курьера снято.");
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Не удалось изменить назначение");
+      setNotice(displayError(error, "Не удалось изменить назначение"));
     } finally {
       setBusyOrderId("");
     }
@@ -261,7 +264,7 @@ export function AdminOrders({
       };
       setNotice(notices[action]);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Не удалось изменить заказ");
+      setNotice(displayError(error, "Не удалось изменить заказ"));
     } finally {
       setBusyOrderId("");
     }
@@ -322,7 +325,7 @@ export function AdminOrders({
             : "Запрос отклонён.",
       );
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Не удалось обработать запрос");
+      setNotice(displayError(error, "Не удалось обработать запрос"));
     } finally {
       setBusyOrderId("");
     }
@@ -335,7 +338,7 @@ export function AdminOrders({
           <p className="eyebrow">Операционная очередь</p>
           <h2 id="orders-title">Заказы</h2>
           <p className="small">
-            Только tenant-scoped данные и неизменяемая стоимость на момент оформления.
+            Заказы выбранной организации. Стоимость сохраняется на момент оформления.
           </p>
         </div>
         <div className="admin-order-toolbar">
@@ -348,6 +351,8 @@ export function AdminOrders({
             <option value="all">Все</option>
             <option value="held">Ожидают подтверждения</option>
             <option value="confirmed">Подтверждены</option>
+            <option value="handovers">К выдаче на сегодня (включая задержанные)</option>
+            <option value="returns_today">Возврат сегодня</option>
             <option value="in_progress">У клиента</option>
             <option value="overdue">Просрочены</option>
             <option value="requests">Запросы клиентов</option>
@@ -366,6 +371,7 @@ export function AdminOrders({
         tenantId={tenantId}
         timeZone={timeZone}
         catalog={catalog}
+        onAttempt={() => setNotice("")}
         onCreated={async () => {
           setFilter("all");
           await loadOrders();
@@ -469,6 +475,7 @@ function OrderCard({
         `/api/admin/orders/${encodeURIComponent(order.order_id)}/contact?tenant_id=${encodeURIComponent(tenantId)}`,
         {
           method: "POST",
+          signal: AbortSignal.timeout(10000),
           headers: { "Idempotency-Key": `admin-contact-${crypto.randomUUID()}` },
         },
       );
@@ -484,12 +491,13 @@ function OrderCard({
         return;
       }
       if (!response.ok) {
-        const detail = (payload as { detail?: string }).detail;
-        throw new Error(detail ?? "Контакт недоступен");
+        throw new Error(
+          uiError(payload, "Контакт недоступен. Обновите заказ или обратитесь к владельцу."),
+        );
       }
       setContact(adminOrderContactAccessSchema.parse(payload).contact);
     } catch (error) {
-      setContactError(error instanceof Error ? error.message : "Контакт недоступен");
+      setContactError(displayError(error, "Контакт недоступен"));
     } finally {
       setContactLoading(false);
     }
@@ -862,12 +870,14 @@ function PhoneOrderForm({
   timeZone,
   catalog,
   onCreated,
+  onAttempt,
   onUnauthorized,
   onAccessChanged,
 }: {
   tenantId: string;
   timeZone: string;
   catalog: AdminCatalog;
+  onAttempt: () => void;
   onCreated: () => Promise<void>;
   onUnauthorized: () => void;
   onAccessChanged: () => void;
@@ -901,6 +911,8 @@ function PhoneOrderForm({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (creating) return;
+    onAttempt();
     const data = new FormData(event.currentTarget);
     setCreating(true);
     setError("");
@@ -935,14 +947,14 @@ function PhoneOrderForm({
         return;
       }
       if (!response.ok) {
-        const detail = (payload as { detail?: string | { msg?: string }[] }).detail;
-        const message = Array.isArray(detail) ? detail[0]?.msg : detail;
-        throw new Error(message ?? "Не удалось создать заказ");
+        throw new Error(
+          uiError(payload, "Не удалось создать заказ. Проверьте даты и выбранный тариф."),
+        );
       }
       adminOrderTransitionSchema.parse(payload);
       await onCreated();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не удалось создать заказ");
+      setError(displayError(reason, "Не удалось создать заказ"));
     } finally {
       setCreating(false);
     }

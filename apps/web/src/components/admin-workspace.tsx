@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { CatalogDialog } from "@/components/catalog-dialog";
+import { displayError, uiError } from "@/lib/ui-error";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { AdminOrders } from "@/components/admin-orders";
 import type { OrderFilter } from "@/components/admin-orders";
 import { AdminDashboard } from "@/components/admin-dashboard";
@@ -89,11 +91,12 @@ function sameMemberships(current: Membership[], incoming: Membership[]) {
 async function apiRequest(path: string, init?: RequestInit) {
   const response = await fetch(path, {
     ...init,
+    signal: init?.signal ?? AbortSignal.timeout(10000),
     headers: init?.body ? { "Content-Type": "application/json", ...init.headers } : init?.headers,
   });
   const payload = (await response.json().catch(() => ({}))) as { detail?: string };
   if (!response.ok) {
-    throw new ApiError(payload.detail ?? "Не удалось выполнить запрос", response.status);
+    throw new ApiError(uiError(payload), response.status);
   }
   return payload;
 }
@@ -107,6 +110,8 @@ function rubles(minor: number) {
 }
 
 export function AdminWorkspace() {
+  const generation = useRef(0);
+  const sessionRevision = useRef(0);
   const [session, setSession] = useState<SessionState>("loading");
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [tenantId, setTenantId] = useState("");
@@ -122,15 +127,20 @@ export function AdminWorkspace() {
   const access = currentTenant ? workspaceAccess[currentTenant.role] : null;
 
   const clearSession = useCallback(() => {
+    generation.current += 1;
+    sessionRevision.current += 1;
     setCatalog(null);
     setMemberships([]);
     setTenantId("");
     setSession("anonymous");
   }, []);
 
-  const refreshDashboard = useCallback(() => {
-    setDashboardRefresh((current) => current + 1);
-  }, []);
+  const clearSharedSession = useCallback(() => {
+    clearSession();
+    const channel = new BroadcastChannel("photolamp-staff-session");
+    channel.postMessage("changed");
+    channel.close();
+  }, [clearSession]);
 
   const openOrderQueue = useCallback((filter: OrderFilter) => {
     setOrderTarget((current) => ({ filter, version: current.version + 1 }));
@@ -140,22 +150,39 @@ export function AdminWorkspace() {
   }, []);
 
   const loadSession = useCallback(async () => {
+    const attempt = ++sessionRevision.current;
     try {
-      const response = await fetch("/api/admin/session", { cache: "no-store" });
+      const response = await fetch("/api/admin/session", {
+        cache: "no-store",
+        signal: AbortSignal.timeout(10000),
+      });
+      if (attempt !== sessionRevision.current) return;
       if (response.status === 401) {
         clearSession();
         return;
       }
       if (!response.ok) throw new Error("Не удалось проверить сессию");
       const data = membershipSchema.array().parse(await response.json());
+      if (attempt !== sessionRevision.current) return;
       setMemberships((current) => (sameMemberships(current, data) ? current : data));
       setTenantId((current) =>
         data.some((membership) => membership.tenant_id === current)
           ? current
-          : (data[0]?.tenant_id ?? ""),
+          : (data.find(
+              (membership) =>
+                membership.slug ===
+                (new URLSearchParams(window.location.search).get("tenant") ??
+                  sessionStorage.getItem("photolamp-tenant")),
+            )?.tenant_id ??
+            data[0]?.tenant_id ??
+            ""),
       );
       setSession("authenticated");
     } catch {
+      if (attempt !== sessionRevision.current) return;
+      setCatalog(null);
+      setMemberships([]);
+      setNotice("Не удалось проверить доступ. Проверьте соединение и войдите повторно.");
       setSession("error");
     }
   }, [clearSession]);
@@ -173,10 +200,12 @@ export function AdminWorkspace() {
         setCatalog(null);
         return;
       }
+      const requestGeneration = generation.current;
       const response = await fetch(
         `/api/admin/catalog?tenant_id=${encodeURIComponent(selectedTenant)}`,
         {
           cache: "no-store",
+          signal: AbortSignal.timeout(10000),
         },
       );
       if (response.status === 401) {
@@ -189,6 +218,7 @@ export function AdminWorkspace() {
         throw new Error("Не удалось загрузить доступное рабочее пространство");
       }
       const nextCatalog = adminCatalogSchema.parse(await response.json());
+      if (requestGeneration !== generation.current) return;
       setMemberships((current) => {
         const selected = current.find((membership) => membership.tenant_id === selectedTenant);
         if (!selected || selected.role === nextCatalog.role) return current;
@@ -203,6 +233,14 @@ export function AdminWorkspace() {
     [clearSession, loadSession],
   );
 
+  const refreshDashboard = useCallback(() => {
+    setDashboardRefresh((current) => current + 1);
+    if (currentTenant)
+      void loadCatalog(tenantId, currentTenant.role).catch(() =>
+        setNotice("Не удалось обновить инвентарь. Нажмите «Обновить» или перезагрузите страницу."),
+      );
+  }, [tenantId, currentTenant, loadCatalog]);
+
   useEffect(() => {
     // Session state is intentionally bootstrapped from the same-origin server boundary.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -214,19 +252,55 @@ export function AdminWorkspace() {
       // Tenant selection is the external input for the protected catalog fetch.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       void loadCatalog(tenantId, currentTenant.role).catch((error: unknown) => {
-        setNotice(error instanceof Error ? error.message : "Ошибка загрузки");
+        setNotice(displayError(error, "Ошибка загрузки"));
       });
     }
   }, [currentTenant, loadCatalog, session, tenantId]);
+
+  useEffect(() => {
+    if (currentTenant) sessionStorage.setItem("photolamp-tenant", currentTenant.slug);
+  }, [currentTenant]);
+
+  useEffect(() => {
+    // A cookie change is not observable; broadcast every successful login/logout in other tabs.
+    const channel = new BroadcastChannel("photolamp-staff-session");
+    function invalidate() {
+      clearSession();
+      setNotice("");
+      void loadSession();
+    }
+    channel.onmessage = invalidate;
+    const focus = () => {
+      clearSession();
+      void loadSession();
+    };
+    window.addEventListener("focus", focus);
+    const visible = () => {
+      if (document.visibilityState === "visible") focus();
+    };
+    document.addEventListener("visibilitychange", visible);
+    return () => {
+      channel.close();
+      window.removeEventListener("focus", focus);
+      document.removeEventListener("visibilitychange", visible);
+    };
+  }, [clearSession, loadSession]);
+
+  function announceSession() {
+    const channel = new BroadcastChannel("photolamp-staff-session");
+    channel.postMessage("changed");
+    channel.close();
+  }
 
   async function demoLogin() {
     setBusy(true);
     setNotice("");
     try {
       await apiRequest("/api/admin/session", { method: "POST" });
+      announceSession();
       await loadSession();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Демо-вход недоступен");
+      setNotice(displayError(error, "Демо-вход недоступен"));
     } finally {
       setBusy(false);
     }
@@ -245,9 +319,10 @@ export function AdminWorkspace() {
           password: data.get("password"),
         }),
       });
+      announceSession();
       await loadSession();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Не удалось войти");
+      setNotice(displayError(error, "Не удалось войти"));
     } finally {
       setBusy(false);
     }
@@ -255,12 +330,15 @@ export function AdminWorkspace() {
 
   async function logout() {
     setBusy(true);
-    await fetch("/api/admin/session", { method: "DELETE" });
-    setCatalog(null);
-    setMemberships([]);
-    setTenantId("");
-    setSession("anonymous");
-    setBusy(false);
+    try {
+      await apiRequest("/api/admin/session", { method: "DELETE" });
+      clearSession();
+      announceSession();
+    } catch {
+      setNotice("Не удалось завершить сессию. Проверьте соединение и повторите выход.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function mutate(resource: string, body: object, id?: string) {
@@ -284,7 +362,7 @@ export function AdminWorkspace() {
         setCatalog(null);
         await loadSession();
       }
-      setNotice(error instanceof Error ? error.message : "Не удалось сохранить изменение");
+      setNotice(displayError(error, "Не удалось сохранить изменение"));
       return false;
     } finally {
       setBusy(false);
@@ -388,8 +466,19 @@ export function AdminWorkspace() {
               id="tenant-select"
               value={tenantId}
               onChange={(event) => {
+                generation.current += 1;
                 setCatalog(null);
                 setNotice("");
+                const selected = memberships.find(
+                  (membership) => membership.tenant_id === event.target.value,
+                );
+                if (selected)
+                  window.history.replaceState(
+                    null,
+                    "",
+                    `/admin?tenant=${encodeURIComponent(selected.slug)}`,
+                  );
+                setOrderTarget({ filter: "all", version: 0 });
                 setTenantId(event.target.value);
               }}
             >
@@ -433,7 +522,7 @@ export function AdminWorkspace() {
           </p>
         )}
         {access?.orders && (!catalog || catalog.tenant_id !== tenantId) ? (
-          <p className="admin-loading">Загружаем tenant-каталог…</p>
+          <p className="admin-loading">Загружаем каталог организации…</p>
         ) : access?.orders && catalog ? (
           <>
             <AdminDashboard
@@ -457,15 +546,40 @@ export function AdminWorkspace() {
 
             {access.catalog && (
               <>
-                <ModelSection catalog={catalog} busy={busy} mutate={mutate} />
-                <AssetSection catalog={catalog} busy={busy} mutate={mutate} />
-                <PricingSection catalog={catalog} busy={busy} mutate={mutate} />
-                <BranchSection catalog={catalog} busy={busy} mutate={mutate} />
+                <ModelSection
+                  notice={notice}
+                  key={tenantId}
+                  catalog={catalog}
+                  busy={busy}
+                  mutate={mutate}
+                />
+                <AssetSection
+                  notice={notice}
+                  key={tenantId}
+                  catalog={catalog}
+                  busy={busy}
+                  mutate={mutate}
+                />
+                <PricingSection
+                  notice={notice}
+                  key={tenantId}
+                  catalog={catalog}
+                  busy={busy}
+                  mutate={mutate}
+                />
+                <BranchSection
+                  notice={notice}
+                  key={tenantId}
+                  catalog={catalog}
+                  busy={busy}
+                  mutate={mutate}
+                />
               </>
             )}
           </>
         ) : currentTenant?.role === "courier" ? (
           <CourierWorkspace
+            key={tenantId}
             tenantId={tenantId}
             onUnauthorized={clearSession}
             onAccessChanged={refreshAccess}
@@ -482,9 +596,11 @@ export function AdminWorkspace() {
           </section>
         )}
 
-        {access?.team && <AdminTeam tenantId={tenantId} onUnauthorized={clearSession} />}
+        {access?.team && (
+          <AdminTeam key={tenantId} tenantId={tenantId} onUnauthorized={clearSession} />
+        )}
 
-        <AdminSessions onUnauthorized={clearSession} />
+        <AdminSessions onUnauthorized={clearSharedSession} />
       </main>
     </div>
   );
@@ -492,11 +608,12 @@ export function AdminWorkspace() {
 
 type SectionProps = {
   catalog: AdminCatalog;
+  notice: string;
   busy: boolean;
   mutate: (resource: string, body: object, id?: string) => Promise<boolean>;
 };
 
-function ModelSection({ catalog, busy, mutate }: SectionProps) {
+function ModelSection({ catalog, busy, mutate, notice }: SectionProps) {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -512,7 +629,10 @@ function ModelSection({ catalog, busy, mutate }: SectionProps) {
       illustration: data.get("illustration"),
       publication_state: "draft",
     });
-    if (saved) form.reset();
+    if (saved) {
+      form.reset();
+      form.closest("dialog")?.close();
+    }
   }
   return (
     <section className="admin-section" aria-labelledby="models-title">
@@ -521,8 +641,7 @@ function ModelSection({ catalog, busy, mutate }: SectionProps) {
           <p className="eyebrow">Каталог</p>
           <h2 id="models-title">Модели оборудования</h2>
         </div>
-        <details className="admin-create">
-          <summary className="button primary">Добавить модель</summary>
+        <CatalogDialog feedback={notice} title="Добавить модель">
           <form onSubmit={(event) => void submit(event)}>
             <label>
               Название
@@ -556,7 +675,7 @@ function ModelSection({ catalog, busy, mutate }: SectionProps) {
               Сохранить черновик
             </button>
           </form>
-        </details>
+        </CatalogDialog>
       </div>
       <div className="admin-card-grid">
         {catalog.models.map((model) => {
@@ -574,6 +693,14 @@ function ModelSection({ catalog, busy, mutate }: SectionProps) {
                     : "Архив"}
               </span>
               <h3>{model.name}</h3>
+              <EditCatalogItem
+                notice={notice}
+                resource="models"
+                item={model}
+                catalog={catalog}
+                busy={busy}
+                mutate={mutate}
+              />
               {model.manufacturer && <p className="small">Производитель: {model.manufacturer}</p>}
               <p>{model.description}</p>
               <p className="small">Комплект: {model.included_items.join(", ")}</p>
@@ -604,7 +731,7 @@ function ModelSection({ catalog, busy, mutate }: SectionProps) {
   );
 }
 
-function AssetSection({ catalog, busy, mutate }: SectionProps) {
+function AssetSection({ catalog, busy, mutate, notice }: SectionProps) {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -615,7 +742,10 @@ function AssetSection({ catalog, busy, mutate }: SectionProps) {
       equipment_model_id: data.get("equipment_model_id"),
       state: "available",
     });
-    if (saved) form.reset();
+    if (saved) {
+      form.reset();
+      form.closest("dialog")?.close();
+    }
   }
   return (
     <section className="admin-section" aria-labelledby="assets-title">
@@ -624,8 +754,7 @@ function AssetSection({ catalog, busy, mutate }: SectionProps) {
           <p className="eyebrow">Инвентарь</p>
           <h2 id="assets-title">Экземпляры</h2>
         </div>
-        <details className="admin-create">
-          <summary className="button primary">Добавить прибор</summary>
+        <CatalogDialog feedback={notice} title="Добавить прибор">
           <form onSubmit={(event) => void submit(event)}>
             <label>
               Внутренний код
@@ -663,13 +792,21 @@ function AssetSection({ catalog, busy, mutate }: SectionProps) {
               Добавить
             </button>
           </form>
-        </details>
+        </CatalogDialog>
       </div>
       <div className="admin-list">
         {catalog.assets.map((asset) => (
           <article key={asset.id}>
             <div>
               <strong>{asset.asset_code}</strong>
+              <EditCatalogItem
+                notice={notice}
+                resource="assets"
+                item={asset}
+                catalog={catalog}
+                busy={busy}
+                mutate={mutate}
+              />
               <span>
                 {asset.model_name} · {asset.branch_name}
               </span>
@@ -695,7 +832,7 @@ function AssetSection({ catalog, busy, mutate }: SectionProps) {
   );
 }
 
-function PricingSection({ catalog, busy, mutate }: SectionProps) {
+function PricingSection({ catalog, busy, mutate, notice }: SectionProps) {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -708,7 +845,10 @@ function PricingSection({ catalog, busy, mutate }: SectionProps) {
       maximum_days: Number(data.get("maximum_days")),
       state: "draft",
     });
-    if (saved) form.reset();
+    if (saved) {
+      form.reset();
+      form.closest("dialog")?.close();
+    }
   }
   return (
     <section className="admin-section" aria-labelledby="pricing-title">
@@ -717,8 +857,7 @@ function PricingSection({ catalog, busy, mutate }: SectionProps) {
           <p className="eyebrow">Условия</p>
           <h2 id="pricing-title">Тарифы</h2>
         </div>
-        <details className="admin-create">
-          <summary className="button primary">Добавить тариф</summary>
+        <CatalogDialog feedback={notice} title="Добавить тариф">
           <form onSubmit={(event) => void submit(event)}>
             <label>
               Модель
@@ -748,13 +887,21 @@ function PricingSection({ catalog, busy, mutate }: SectionProps) {
               Сохранить черновик
             </button>
           </form>
-        </details>
+        </CatalogDialog>
       </div>
       <div className="admin-list">
         {catalog.pricing.map((price) => (
           <article key={price.id}>
             <div>
               <strong>{price.model_name}</strong>
+              <EditCatalogItem
+                notice={notice}
+                resource="pricing"
+                item={price}
+                catalog={catalog}
+                busy={busy}
+                mutate={mutate}
+              />
               <span>
                 {rubles(price.amount_minor_per_day)} / сутки · {price.minimum_days}–
                 {price.maximum_days} дней
@@ -781,7 +928,7 @@ function PricingSection({ catalog, busy, mutate }: SectionProps) {
   );
 }
 
-function BranchSection({ catalog, busy, mutate }: SectionProps) {
+function BranchSection({ catalog, busy, mutate, notice }: SectionProps) {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -793,7 +940,10 @@ function BranchSection({ catalog, busy, mutate }: SectionProps) {
       pickup_enabled: true,
       delivery_enabled: true,
     });
-    if (saved) form.reset();
+    if (saved) {
+      form.reset();
+      form.closest("dialog")?.close();
+    }
   }
   return (
     <section className="admin-section" aria-labelledby="branches-title">
@@ -802,8 +952,7 @@ function BranchSection({ catalog, busy, mutate }: SectionProps) {
           <p className="eyebrow">Получение</p>
           <h2 id="branches-title">Филиалы</h2>
         </div>
-        <details className="admin-create">
-          <summary className="button primary">Добавить филиал</summary>
+        <CatalogDialog feedback={notice} title="Добавить филиал">
           <form onSubmit={(event) => void submit(event)}>
             <label>
               Название
@@ -821,7 +970,7 @@ function BranchSection({ catalog, busy, mutate }: SectionProps) {
               Добавить
             </button>
           </form>
-        </details>
+        </CatalogDialog>
       </div>
       <div className="admin-card-grid">
         {catalog.branches.map((branch) => (
@@ -830,6 +979,14 @@ function BranchSection({ catalog, busy, mutate }: SectionProps) {
               {branch.state === "active" ? "Работает" : "Отключён"}
             </span>
             <h3>{branch.name}</h3>
+            <EditCatalogItem
+              notice={notice}
+              resource="branches"
+              item={branch}
+              catalog={catalog}
+              busy={busy}
+              mutate={mutate}
+            />
             <p>
               {branch.city} · {branch.timezone}
             </p>
@@ -854,5 +1011,201 @@ function BranchSection({ catalog, busy, mutate }: SectionProps) {
         ))}
       </div>
     </section>
+  );
+}
+
+function EditCatalogItem({
+  resource,
+  notice,
+  item,
+  catalog,
+  busy,
+  mutate,
+}: SectionProps & {
+  resource: "models" | "assets" | "pricing" | "branches";
+  item:
+    | AdminCatalog["models"][number]
+    | AdminCatalog["assets"][number]
+    | AdminCatalog["pricing"][number]
+    | AdminCatalog["branches"][number];
+}) {
+  const record = item as unknown as Record<string, unknown>;
+  const text = (key: string) => String(record[key] ?? "");
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy) return;
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const body: Record<string, unknown> = {};
+    for (const [key, value] of data) {
+      if (key === "included_items")
+        body[key] = String(value)
+          .split(",")
+          .map((part) => part.trim())
+          .filter(Boolean);
+      else if (["amount_minor_per_day", "deposit_minor"].includes(key))
+        body[key] = Math.round(Number(value) * 100);
+      else if (["minimum_days", "maximum_days"].includes(key)) body[key] = Number(value);
+      else if (["pickup_enabled", "delivery_enabled"].includes(key)) body[key] = value === "true";
+      else body[key] = value;
+    }
+    if (await mutate(resource, body, item.id)) form.closest("dialog")?.close();
+  }
+  return (
+    <CatalogDialog
+      feedback={notice}
+      title={`Редактировать ${text("name") || text("asset_code") || text("model_name")}`}
+    >
+      <form onSubmit={(event) => void save(event)}>
+        {resource === "models" && (
+          <>
+            <label>
+              Название
+              <input name="name" required maxLength={120} defaultValue={text("name")} />
+            </label>
+            <label>
+              Описание
+              <textarea
+                name="description"
+                required
+                maxLength={500}
+                defaultValue={text("description")}
+              />
+            </label>
+            <label>
+              Комплект через запятую
+              <input
+                name="included_items"
+                required
+                defaultValue={(record.included_items as string[]).join(", ")}
+              />
+            </label>
+          </>
+        )}
+        {resource === "assets" && (
+          <>
+            <label>
+              Внутренний код
+              <input
+                name="asset_code"
+                required
+                pattern="[A-Z0-9][A-Z0-9-]{1,31}"
+                defaultValue={text("asset_code")}
+              />
+            </label>
+            <label>
+              Модель
+              <select name="equipment_model_id" defaultValue={text("equipment_model_id")}>
+                {catalog.models.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Филиал
+              <select name="branch_id" defaultValue={text("branch_id")}>
+                {catalog.branches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="small">
+              Прибор с активным заказом изменяется через операции заказа. Сервер повторно проверяет
+              это перед сохранением.
+            </p>
+          </>
+        )}
+        {resource === "pricing" && (
+          <>
+            <label>
+              ₽ в сутки
+              <input
+                name="amount_minor_per_day"
+                type="number"
+                min="0.01"
+                step="0.01"
+                max="100000"
+                required
+                defaultValue={Number(record.amount_minor_per_day) / 100}
+              />
+            </label>
+            <label>
+              Залог, ₽
+              <input
+                name="deposit_minor"
+                type="number"
+                min="0"
+                step="0.01"
+                max="1000000"
+                required
+                defaultValue={Number(record.deposit_minor) / 100}
+              />
+            </label>
+            <label>
+              От дней
+              <input
+                name="minimum_days"
+                type="number"
+                min="1"
+                max="365"
+                required
+                defaultValue={text("minimum_days")}
+              />
+            </label>
+            <label>
+              До дней
+              <input
+                name="maximum_days"
+                type="number"
+                min="1"
+                max="365"
+                required
+                defaultValue={text("maximum_days")}
+              />
+            </label>
+            <p className="small">
+              Изменения применятся к новым расчётам. Стоимость оформленных заказов сохранится.
+            </p>
+          </>
+        )}
+        {resource === "branches" && (
+          <>
+            <label>
+              Название
+              <input name="name" required maxLength={100} defaultValue={text("name")} />
+            </label>
+            <label>
+              Город
+              <input name="city" required maxLength={100} defaultValue={text("city")} />
+            </label>
+            <label>
+              Часовой пояс
+              <input name="timezone" required maxLength={100} defaultValue={text("timezone")} />
+            </label>
+            <label>
+              Самовывоз
+              <select name="pickup_enabled" defaultValue={text("pickup_enabled")}>
+                <option value="true">Доступен</option>
+                <option value="false">Выключен</option>
+              </select>
+            </label>
+            <label>
+              Доставка
+              <select name="delivery_enabled" defaultValue={text("delivery_enabled")}>
+                <option value="true">Доступна</option>
+                <option value="false">Выключена</option>
+              </select>
+            </label>
+          </>
+        )}
+        <button className="button primary" type="submit" disabled={busy}>
+          {busy ? "Сохраняем…" : "Сохранить изменения"}
+        </button>
+      </form>
+    </CatalogDialog>
   );
 }

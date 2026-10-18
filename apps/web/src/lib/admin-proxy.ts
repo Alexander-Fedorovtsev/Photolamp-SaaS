@@ -44,6 +44,7 @@ export async function proxyStaffRequest(path: string, init?: RequestInit) {
     ...init,
     headers,
     cache: "no-store",
+    signal: AbortSignal.timeout(8000),
   });
   const body = await response.text();
   return new NextResponse(body || null, {

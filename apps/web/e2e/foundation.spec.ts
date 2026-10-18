@@ -18,7 +18,7 @@ test("home links to independent demo storefronts", async ({ page }) => {
   await expect(homeLamp).toContainText("3 дня–30 дней");
   await expect(homeLamp).toContainText("Без залога");
   await expect(homeLamp).toContainText("1 из 2 приборов в статусе «доступен»");
-  await expect(page.locator("#catalog")).toContainText("данные из PostgreSQL");
+  await expect(page.locator("#catalog")).toContainText("Каталог организации");
   await expect(page.getByRole("button", { name: "Перейти к бронированию — скоро" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Заказать по телефону — скоро" })).toBeDisabled();
   await page.goto("/r/demo-kazan");

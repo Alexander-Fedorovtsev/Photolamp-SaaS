@@ -253,6 +253,17 @@ test("owner creates a one-time staff link and invitee sets up access", async ({ 
     page.getByText("После обновления страницы она не будет показана повторно."),
   ).toBeVisible();
 
+  await page.route("/api/admin/invitations/preview", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        organization_name: "Солнечный дом · демо",
+        display_label: "Новый курьер",
+        role: "courier",
+        expires_at: "2030-01-03T12:00:00+00:00",
+      }),
+    });
+  });
   await page.route("/api/admin/invitations/redeem", async (route) => {
     expect(route.request().postDataJSON()).toEqual({
       invitation_token: invitationToken,
@@ -690,7 +701,7 @@ test("owner can add an inventory instance from the workspace", async ({ page }) 
   });
 
   await page.goto("/admin");
-  await page.getByText("Добавить прибор", { exact: true }).click();
+  await page.getByRole("button", { name: "Добавить прибор", exact: true }).click();
   await page.getByLabel("Внутренний код").fill("DEMO-UFA-99");
   await page.getByRole("button", { name: "Добавить", exact: true }).click();
 
@@ -1080,7 +1091,27 @@ test("staff can create a synthetic phone order without an SMS integration", asyn
       }),
     });
   });
+  await page.route(/\/api\/admin\/catalog\?.*$/, async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    const state =
+      createdOrder?.state === "in_progress"
+        ? "rented"
+        : createdOrder?.state === "returned"
+          ? "inspection"
+          : "available";
+    data.assets = data.assets.map((asset: object) => ({ ...asset, state }));
+    await route.fulfill({ response, json: data });
+  });
   await page.route(/\/api\/admin\/orders\/phone\?.*$/, async (route) => {
+    if (createdOrder) {
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: { code: "NO_UNITS_AVAILABLE", field: "dates" } }),
+      });
+      return;
+    }
     const request = route.request();
     expect(request.headers()["idempotency-key"]).toMatch(/^admin-phone-/);
     const body = request.postDataJSON() as {
@@ -1184,17 +1215,42 @@ test("staff can create a synthetic phone order without an SMS integration", asyn
   await expect(
     page.getByText("Синтетический заказ по телефону создан и подтверждён.", { exact: true }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Создать подтверждённый заказ" }).click();
+  await expect(page.locator(".admin-phone-order [role=alert]")).toContainText(
+    "свободных приборов нет",
+  );
+  await expect(
+    page.getByText("Синтетический заказ по телефону создан и подтверждён.", { exact: true }),
+  ).toHaveCount(0);
   await page.getByText("Синтетическая фотолампа", { exact: true }).click();
   await expect(page.getByText("Заказ по телефону", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Показать контакт" }).click();
   await expect(page.getByRole("link", { name: "+70000000000" })).toBeVisible();
   await page.getByRole("button", { name: "Выдать клиенту" }).click();
   await expect(page.getByText("Передача отмечена. Прибор числится у клиента.")).toBeVisible();
+  await expect(
+    page
+      .locator('[aria-labelledby="assets-title"]')
+      .getByRole("combobox", { name: /Статус.*прибора/ })
+      .first(),
+  ).toHaveValue("rented");
   await page.getByText("Синтетическая фотолампа", { exact: true }).click();
   await page.getByRole("button", { name: "Принять возврат" }).click();
   await expect(page.getByText("Возврат принят. Прибор ожидает осмотра.")).toBeVisible();
+  await expect(
+    page
+      .locator('[aria-labelledby="assets-title"]')
+      .getByRole("combobox", { name: /Статус.*прибора/ })
+      .first(),
+  ).toHaveValue("inspection");
   await page.getByText("Синтетическая фотолампа", { exact: true }).click();
   await page.getByRole("button", { name: "Осмотр пройден" }).click();
   await expect(page.getByText("Осмотр завершён. Прибор снова доступен.")).toBeVisible();
+  await expect(
+    page
+      .locator('[aria-labelledby="assets-title"]')
+      .getByRole("combobox", { name: /Статус.*прибора/ })
+      .first(),
+  ).toHaveValue("available");
   await expect(page.getByText("Завершён", { exact: true })).toBeVisible();
 });
