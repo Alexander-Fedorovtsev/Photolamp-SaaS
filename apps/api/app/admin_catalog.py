@@ -3,8 +3,9 @@
 from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import text
 
 from app.audit import record_audit
@@ -98,13 +99,35 @@ class BranchCreate(BaseModel):
     pickup_enabled: bool = True
     delivery_enabled: bool = True
 
+    @field_validator("timezone")
+    @classmethod
+    def valid_timezone(cls, value: str | None) -> str | None:
+        if value is not None:
+            try:
+                ZoneInfo(value)
+            except (ZoneInfoNotFoundError, ValueError):
+                raise ValueError("Укажите действительный часовой пояс IANA") from None
+        return value
+
 
 class BranchPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    city: Annotated[str, Field(min_length=1, max_length=100)] | None = None
+    timezone: Annotated[str, Field(min_length=1, max_length=100)] | None = None
     name: Annotated[str, Field(min_length=1, max_length=100)] | None = None
     pickup_enabled: bool | None = None
     delivery_enabled: bool | None = None
     state: Literal["active", "inactive"] | None = None
+
+    @field_validator("timezone")
+    @classmethod
+    def valid_timezone(cls, value: str | None) -> str | None:
+        if value is not None:
+            try:
+                ZoneInfo(value)
+            except (ZoneInfoNotFoundError, ValueError):
+                raise ValueError("Укажите действительный часовой пояс IANA") from None
+        return value
 
 
 class ModelCreate(BaseModel):
@@ -392,6 +415,7 @@ async def patch_branch(
 
 
 async def patch_model(transaction: TenantTransaction, entity_id: UUID, command: ModelPatch) -> None:
+    require_catalog_editor(transaction)
     if command.publication_state == "published":
         readiness = (
             await transaction.session.execute(
@@ -421,6 +445,10 @@ async def patch_model(transaction: TenantTransaction, entity_id: UUID, command: 
 
 async def patch_asset(transaction: TenantTransaction, entity_id: UUID, command: AssetPatch) -> None:
     require_catalog_editor(transaction)
+    await transaction.session.execute(
+        text("SELECT id FROM assets WHERE tenant_id = :tenant_id AND id = :asset_id FOR UPDATE"),
+        {"tenant_id": transaction.tenant_id, "asset_id": entity_id},
+    )
     controlled_by_order = await transaction.session.scalar(
         text(
             "SELECT EXISTS (SELECT 1 FROM rental_allocations ra JOIN orders o "
@@ -432,7 +460,9 @@ async def patch_asset(transaction: TenantTransaction, entity_id: UUID, command: 
         {"tenant_id": transaction.tenant_id, "asset_id": entity_id},
     )
     if controlled_by_order:
-        raise InvalidCatalogCommand("Asset state and assignment are controlled by its active order")
+        raise InvalidCatalogCommand(
+            "Прибор связан с активным заказом. Обновите данные и выполните операцию в заказе"
+        )
     await _patch_entity(
         transaction,
         table="assets",
@@ -445,6 +475,7 @@ async def patch_asset(transaction: TenantTransaction, entity_id: UUID, command: 
 async def patch_pricing(
     transaction: TenantTransaction, entity_id: UUID, command: PricingPatch
 ) -> None:
+    require_catalog_editor(transaction)
     values = command.model_dump(exclude_unset=True)
     minimum = values.get("minimum_days")
     maximum = values.get("maximum_days")

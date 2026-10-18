@@ -6,6 +6,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 from sqlalchemy.exc import IntegrityError
@@ -142,6 +143,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(courier_router)
     application.include_router(staff_auth_router)
     application.include_router(staff_session_router)
+
+    @application.exception_handler(RequestValidationError)
+    async def invalid_request(_request: Request, error: RequestValidationError) -> JSONResponse:
+        return JSONResponse(
+            {
+                "detail": [
+                    {"type": item["type"], "loc": item["loc"], "msg": item["msg"]}
+                    for item in error.errors()
+                ]
+            },
+            status_code=422,
+            headers={"Cache-Control": "no-store"},
+        )
 
     @application.exception_handler(IntegrityError)
     async def integrity_conflict(_request: object, _error: IntegrityError) -> JSONResponse:

@@ -170,7 +170,9 @@ async def create_phone_order(
         )
     ).one_or_none()
     if asset is None:
-        raise HTTPException(status_code=409, detail="No units available for selected dates")
+        raise HTTPException(
+            status_code=409, detail={"code": "NO_UNITS_AVAILABLE", "field": "dates"}
+        )
 
     customer_id = await transaction.session.scalar(
         text(

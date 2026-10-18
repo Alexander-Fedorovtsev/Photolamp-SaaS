@@ -304,6 +304,32 @@ async def test_phone_order_fulfillment_is_encrypted_audited_and_releases_invento
                 assert contact_replay.status_code == 200
                 assert contact_replay.json()["replayed"] is True
 
+                # Every authorized staff role must pass the same audited contact boundary.
+                for role in ("owner", "admin", "operator"):
+                    await set_demo_membership(owner_url, role=role)
+                    allowed = await client.post(
+                        f"/api/v1/t/{TENANT_UFA}/orders/{order_id}/contact-access",
+                        headers=contact_headers,
+                    )
+                    assert allowed.status_code == 200
+                    assert allowed.json()["contact"] == contact.json()["contact"]
+                    for resource, payload in (
+                        ("models", {"name": "Forbidden"}),
+                        ("models", {"publication_state": "published"}),
+                        ("assets", {"state": "available"}),
+                        ("pricing", {"minimum_days": 1}),
+                        ("pricing", {"state": "retired"}),
+                        ("branches", {"name": "Forbidden"}),
+                    ):
+                        # UUID existence cannot grant operator editing rights.
+                        if role == "operator":
+                            denied = await client.patch(
+                                f"/api/v1/t/{TENANT_UFA}/{resource}/{order_id}",
+                                headers=headers,
+                                json=payload,
+                            )
+                            assert denied.status_code == 403
+
                 await set_demo_membership(owner_url, role="courier")
                 courier_requests = (
                     await client.get(f"/api/v1/t/{TENANT_UFA}/orders", headers=headers),
@@ -381,7 +407,8 @@ async def test_phone_order_fulfillment_is_encrypted_audited_and_releases_invento
                 )
                 assert bypass.status_code == 422
                 assert bypass.json()["detail"] == (
-                    "Asset state and assignment are controlled by its active order"
+                    "Прибор связан с активным заказом. "
+                    "Обновите данные и выполните операцию в заказе"
                 )
                 handover_replay = await client.post(
                     f"/api/v1/t/{TENANT_UFA}/orders/{order_id}/handover",

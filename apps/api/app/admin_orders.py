@@ -217,6 +217,7 @@ async def list_staff_orders(
     requests: bool,
     limit: int,
     offset: int,
+    due: Literal["handovers", "returns_today"] | None = None,
 ) -> StaffOrderPage:
     require_order_operator(transaction)
     await expire_holds(transaction)
@@ -225,6 +226,7 @@ async def list_staff_orders(
         "state": state,
         "overdue": overdue,
         "requests": requests,
+        "due": due,
         "limit": limit,
         "offset": offset,
     }
@@ -234,6 +236,11 @@ async def list_staff_orders(
             "ON b.tenant_id = o.tenant_id AND b.id = o.branch_id "
             "WHERE o.tenant_id = :tenant_id "
             "AND (CAST(:state AS text) IS NULL OR o.state = CAST(:state AS text)) "
+            "AND (CAST(:due AS text) IS NULL OR (CAST(:due AS text) = 'handovers' "
+            "AND o.state = 'confirmed' AND o.start_date <= "
+            "(now() AT TIME ZONE b.timezone)::date) OR (CAST(:due AS text) = 'returns_today' "
+            "AND o.state = 'in_progress' AND o.end_date = "
+            "(now() AT TIME ZONE b.timezone)::date)) "
             "AND (NOT :overdue OR (o.state = 'in_progress' "
             "AND o.end_date < (now() AT TIME ZONE b.timezone)::date)) "
             "AND (NOT :requests OR EXISTS (SELECT 1 FROM order_extension_requests er "
@@ -249,6 +256,11 @@ async def list_staff_orders(
                 STAFF_ORDER_PROJECTION  # noqa: S608 - projection and clauses are constants
                 + " WHERE o.tenant_id = :tenant_id "
                 "AND (CAST(:state AS text) IS NULL OR o.state = CAST(:state AS text)) "
+                "AND (CAST(:due AS text) IS NULL OR (CAST(:due AS text) = 'handovers' "
+                "AND o.state = 'confirmed' AND o.start_date <= "
+                "(now() AT TIME ZONE b.timezone)::date) OR (CAST(:due AS text) = 'returns_today' "
+                "AND o.state = 'in_progress' AND o.end_date = "
+                "(now() AT TIME ZONE b.timezone)::date)) "
                 "AND (NOT :overdue OR (o.state = 'in_progress' "
                 "AND o.end_date < (now() AT TIME ZONE b.timezone)::date)) "
                 "AND (NOT :requests OR EXISTS (SELECT 1 FROM order_extension_requests er "

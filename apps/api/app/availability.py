@@ -69,9 +69,14 @@ class Quote(Availability):
 def _rental_days(start_date: date, end_date: date) -> int:
     days = (end_date - start_date).days + 1
     if days < 1:
-        raise HTTPException(status_code=422, detail="end_date must not be before start_date")
+        raise HTTPException(
+            status_code=422, detail={"code": "END_BEFORE_START", "field": "end_date"}
+        )
     if days > 365:
-        raise HTTPException(status_code=422, detail="Rental period cannot exceed 365 days")
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "MAXIMUM_DAYS", "field": "end_date", "maximum_days": 365},
+        )
     return days
 
 
@@ -125,7 +130,7 @@ async def load_quote_context(
         raise HTTPException(status_code=404, detail="Published model or branch not found")
     context = dict(row._mapping)
     if request.start_date < _as_date(context["local_date"]):
-        raise HTTPException(status_code=422, detail="start_date must not be in the past")
+        raise HTTPException(status_code=422, detail={"code": "DATE_IN_PAST", "field": "start_date"})
     return context, days
 
 
@@ -177,16 +182,25 @@ async def calculate_quote(
 def quote_from_context(request: QuoteRequest, context: dict[str, object], days: int) -> Quote:
     minimum_days = _as_int(context["minimum_days"])
     maximum_days = _as_int(context["maximum_days"])
-    if not minimum_days <= days <= maximum_days:
+    if days < minimum_days:
         raise HTTPException(
             status_code=422,
-            detail=f"Rental period must be between {minimum_days} and {maximum_days} days",
+            detail={"code": "MINIMUM_DAYS", "field": "end_date", "minimum_days": minimum_days},
+        )
+    if days > maximum_days:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "MAXIMUM_DAYS", "field": "end_date", "maximum_days": maximum_days},
         )
     if not bool(context[f"{request.fulfillment}_enabled"]):
-        raise HTTPException(status_code=422, detail="Selected fulfillment is unavailable")
+        raise HTTPException(
+            status_code=422, detail={"code": "FULFILLMENT_UNAVAILABLE", "field": "fulfillment"}
+        )
     available_units = _as_int(context["available_units"])
     if available_units == 0:
-        raise HTTPException(status_code=409, detail="No units available for selected dates")
+        raise HTTPException(
+            status_code=409, detail={"code": "NO_UNITS_AVAILABLE", "field": "dates"}
+        )
     daily = _as_int(context["amount_minor_per_day"])
     deposit = _as_int(context["deposit_minor"])
     rental = daily * days

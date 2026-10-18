@@ -216,3 +216,29 @@ async def login_staff(
     if user_id is None:
         raise InvalidStaffCredentials
     return StaffSession(access_token=token, expires_at=expires_at)
+
+
+class StaffInvitationPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    invitation_token: Annotated[str, Field(pattern=r"^pli_[A-Za-z0-9_-]{32,128}$")]
+
+
+class StaffInvitationPreview(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    organization_name: str
+    display_label: str
+    role: str
+    expires_at: datetime
+
+
+async def preview_invitation(database: Database, token: str) -> StaffInvitationPreview:
+    async with database.transaction() as session:
+        row = (
+            await session.execute(
+                text("SELECT * FROM preview_staff_invitation(:token_hash)"),
+                {"token_hash": hashlib.sha256(token.encode()).digest()},
+            )
+        ).one_or_none()
+    if row is None:
+        raise InvalidStaffInvitation
+    return StaffInvitationPreview.model_validate(dict(row._mapping))
